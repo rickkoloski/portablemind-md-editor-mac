@@ -1,12 +1,32 @@
 import Foundation
 
-/// A node in the workspace folder tree.
+/// A node in the workspace folder tree. `children` is a lazy
+/// computed property so SwiftUI's `OutlineGroup(_:children:)` (which
+/// requires a KeyPath target) can traverse the tree without eager
+/// materialization.
 struct FolderNode: Identifiable, Hashable {
-    /// The file URL is also the stable identity.
     var id: URL { url }
     let url: URL
     let name: String
     let isDirectory: Bool
+
+    /// OutlineGroup KeyPath target. nil → leaf (no disclosure triangle).
+    var children: [FolderNode]? {
+        guard isDirectory else { return nil }
+        return FolderTreeLoader.children(of: url)
+    }
+
+    // Hashable / Equatable based on stored properties only, so the
+    // computed `children` (which re-walks the filesystem) doesn't
+    // participate in identity.
+    static func == (lhs: FolderNode, rhs: FolderNode) -> Bool {
+        lhs.url == rhs.url && lhs.name == rhs.name && lhs.isDirectory == rhs.isDirectory
+    }
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(url)
+        hasher.combine(name)
+        hasher.combine(isDirectory)
+    }
 }
 
 /// Shared filter rules. Anything starting with `.` is hidden, plus a

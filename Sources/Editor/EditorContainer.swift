@@ -1,10 +1,16 @@
 import AppKit
+import Combine
 import SwiftUI
 
-/// SwiftUI → AppKit bridge hosting the TextKit 2 live-render editor.
+/// SwiftUI → AppKit bridge hosting the TextKit 2 live-render editor
+/// for a single `EditorDocument`.
 ///
-/// A Coordinator owns the renderer, cursor tracker, and file watcher.
-/// The container surfaces only what SwiftUI needs: a file-URL binding.
+/// D6 refactor: takes an `EditorDocument` reference instead of a
+/// fileURL binding. `WorkspaceView` gives each EditorContainer a
+/// stable `.id(doc.id)` so SwiftUI rebuilds the container (and thus
+/// the NSTextView) when the focused document changes. Keeps state
+/// cleanly scoped per-document without having to manage cross-doc
+/// swapping inside a single NSTextView.
 ///
 /// IMPORTANT (`docs/engineering-standards_ref.md` §2.2): this file
 /// never references `NSTextView.layoutManager`. Only `textLayoutManager`
@@ -12,10 +18,10 @@ import SwiftUI
 /// and flips the code path — the whole app's renderer depends on
 /// being in the TextKit 2 path.
 struct EditorContainer: NSViewRepresentable {
-    @Binding var fileURL: URL?
+    @ObservedObject var document: EditorDocument
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(document: document)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -43,7 +49,7 @@ struct EditorContainer: NSViewRepresentable {
 
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
-        context.coordinator.wireExternalEditCallback()
+        context.coordinator.wireDocumentSubscription()
 
         if let tlm = textView.textLayoutManager {
             NSLog("TEXTKIT2-OK: textLayoutManager=\(tlm)")
@@ -51,10 +57,12 @@ struct EditorContainer: NSViewRepresentable {
             NSLog("TEXTKIT2-WARNING: textLayoutManager is nil — NOT on TextKit 2 code path")
         }
 
+        // Seed the text view from the document, then render once.
+        textView.string = document.source
+        context.coordinator.renderCurrentText(in: textView)
+
         // Publish this text view as the active dispatch target so the
-        // global SwiftUI toolbar (and View menu) can route commands to
-        // it. Single-window shortcut per D5 plan; migrate to
-        // @FocusedValue when multi-window lands.
+        // global toolbar / menu commands route here.
         EditorDispatcherRegistry.shared.register(for: textView)
 
         scroll.documentView = textView
@@ -62,59 +70,56 @@ struct EditorContainer: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        guard let textView = nsView.documentView as? LiveRenderTextView else { return }
-        context.coordinator.loadFileIfNeeded(fileURL, into: textView)
+        // Focused-document changes rebuild this view via the
+        // `.id(doc.id)` modifier on WorkspaceView's detail. No
+        // cross-document swap here. Within-document state changes
+        // (text reloaded from disk, etc.) flow through the Combine
+        // subscription wired in `wireDocumentSubscription()`.
     }
 
     // MARK: - Coordinator
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var textView: LiveRenderTextView?
         let cursorTracker = CursorLineTracker()
-        let watcher = ExternalEditWatcher()
-        private(set) var loadedFileURL: URL?
-        // Default to markdown so the untitled/blank buffer live-renders
-        // without requiring the user to open a file first. When a file
-        // is opened, loadFileIfNeeded reassigns based on its extension.
-        private var documentType: (any DocumentType)? = MarkdownDocumentType()
+        private let document: EditorDocument
+        private var cancellables: Set<AnyCancellable> = []
 
-        func wireExternalEditCallback() {
-            watcher.onChange = { [weak self] newText in
-                guard let self, let textView = self.textView else { return }
-                self.reloadBuffer(with: newText, in: textView)
-            }
+        init(document: EditorDocument) {
+            self.document = document
         }
 
-        func loadFileIfNeeded(_ url: URL?, into textView: LiveRenderTextView) {
-            guard let url else {
-                if loadedFileURL != nil {
-                    watcher.stop()
-                    loadedFileURL = nil
-                    documentType = nil
-                    textView.string = ""
+        func wireDocumentSubscription() {
+            // When the document's source changes externally (e.g., an
+            // agent writes to the file), reflect it into the text view
+            // while preserving caret position on unchanged prefix.
+            document.$source
+                .dropFirst()
+                .sink { [weak self] newText in
+                    guard let self, let textView = self.textView else { return }
+                    if textView.string != newText {
+                        let previousLocation = textView.selectedRange().location
+                        textView.string = newText
+                        self.renderCurrentText(in: textView)
+                        let clamped = min(previousLocation, (newText as NSString).length)
+                        textView.setSelectedRange(NSRange(location: clamped, length: 0))
+                    }
                 }
-                return
-            }
-            if loadedFileURL == url { return }
-
-            guard let type = DocumentTypeRegistry.shared.type(for: url) else {
-                NSLog("EditorContainer: no registered DocumentType for \(url.lastPathComponent)")
-                return
-            }
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else {
-                NSLog("EditorContainer: failed to read \(url.path)")
-                return
-            }
-            documentType = type
-            replaceAndRender(text, in: textView)
-            watcher.watch(url: url)
-            loadedFileURL = url
+                .store(in: &cancellables)
         }
 
-        // MARK: - Text changes
+        // MARK: - Text changes from the user
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? LiveRenderTextView else { return }
+            // Write back to the document so the TabStore and any
+            // persistence layer stay in sync. Equality check avoids
+            // the Combine loop with wireDocumentSubscription's sink.
+            let current = textView.string
+            if document.source != current {
+                document.source = current
+            }
             renderCurrentText(in: textView)
         }
 
@@ -123,13 +128,12 @@ struct EditorContainer: NSViewRepresentable {
             cursorTracker.updateVisibility(in: textView)
         }
 
-        // MARK: - Helpers
+        // MARK: - Rendering
 
-        private func renderCurrentText(in textView: LiveRenderTextView) {
-            guard let textStorage = textView.textStorage,
-                  let type = documentType else { return }
+        func renderCurrentText(in textView: LiveRenderTextView) {
+            guard let textStorage = textView.textStorage else { return }
             let source = textStorage.string
-            let result = type.render(source)
+            let result = document.documentType.render(source)
 
             textStorage.beginEditing()
             let fullRange = NSRange(location: 0, length: textStorage.length)
@@ -145,28 +149,9 @@ struct EditorContainer: NSViewRepresentable {
             }
             textStorage.endEditing()
 
-            // Finding #2 fix: after a full re-render, pre-collapse every
-            // delimiter across the whole document. The cursor tracker
-            // then reveals only the current line on the next selection
-            // change. This gives readers the formatted result on open,
-            // with source revealed only on caret entry.
             cursorTracker.invalidate()
             cursorTracker.collapseAllDelimiters(in: textView)
             cursorTracker.updateVisibility(in: textView)
-        }
-
-        private func replaceAndRender(_ text: String, in textView: LiveRenderTextView) {
-            textView.string = text
-            renderCurrentText(in: textView)
-        }
-
-        private func reloadBuffer(with newText: String, in textView: LiveRenderTextView) {
-            let previousLocation = textView.selectedRange().location
-            textView.string = newText
-            renderCurrentText(in: textView)
-            let nsText = newText as NSString
-            let clamped = min(previousLocation, nsText.length)
-            textView.setSelectedRange(NSRange(location: clamped, length: 0))
         }
     }
 }

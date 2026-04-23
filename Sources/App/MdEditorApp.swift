@@ -2,19 +2,33 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Single-window macOS app entry point. D5 extends D2's toolbar with
-/// the formatting buttons and adds a View menu with Show/Hide Toolbar.
+/// Single-window macOS app entry point. D6 rewires the scene to host
+/// the workspace (sidebar + tabs + editor) instead of a single-file
+/// editor container.
 @main
 struct MdEditorApp: App {
-    @State private var fileURL: URL?
+    @ObservedObject private var workspace = WorkspaceStore.shared
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some Scene {
         WindowGroup {
-            EditorContainer(fileURL: $fileURL)
-                .frame(minWidth: 700, minHeight: 500)
-                .navigationTitle(fileURL?.lastPathComponent ?? "Untitled")
+            WorkspaceView(workspace: workspace, settings: settings)
+                .frame(minWidth: 900, minHeight: 560)
+                .background(WindowAccessor { window in
+                    window.toolbar?.isVisible = settings.toolbarVisible
+                })
+                .onAppear {
+                    workspace.restoreFromBookmarks()
+                }
+                .onOpenURL { url in
+                    URLSchemeHandler.handle(url, workspace: workspace)
+                }
                 .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        Button(action: openFolder) { Text("Open Folder…") }
+                            .keyboardShortcut("o", modifiers: [.command, .shift])
+                            .accessibilityIdentifier(AccessibilityIdentifiers.openFolderMenuItem)
+                    }
                     ToolbarItem(placement: .navigation) {
                         Button(action: openFile) { Text("Open…") }
                             .keyboardShortcut("o", modifiers: .command)
@@ -30,26 +44,10 @@ struct MdEditorApp: App {
                         ToolbarButton(action: .numberedList)
                     }
                 }
-                .background(WindowAccessor { window in
-                    // Toggle the toolbar row via AppKit's native
-                    // NSWindow.toolbar.isVisible. SwiftUI's
-                    // .toolbar(.hidden, for: .windowToolbar) hides the
-                    // whole toolbar region (title bar + traffic lights
-                    // included) even under .expanded style. NSWindow
-                    // makes the distinction natively.
-                    window.toolbar?.isVisible = settings.toolbarVisible
-                })
         }
         .windowResizability(.contentSize)
-        // Expanded toolbar style puts the title bar and toolbar in
-        // separate rows so hiding the toolbar doesn't take the window
-        // chrome (traffic lights, title) with it. Matches the Apple
-        // best practice Rick called out during D5 validation.
         .windowToolbarStyle(.expanded)
         .commands {
-            // Slot the toggle into the existing (system-provided) View
-            // menu at the toolbar-command placement, rather than
-            // creating a second "View" menu with CommandMenu.
             CommandGroup(replacing: .toolbar) {
                 Button(settings.toolbarVisible ? "Hide Toolbar" : "Show Toolbar") {
                     settings.toolbarVisible.toggle()
@@ -57,6 +55,23 @@ struct MdEditorApp: App {
                 .keyboardShortcut("t", modifiers: [.command, .option])
                 .accessibilityIdentifier(AccessibilityIdentifiers.viewMenuToggleToolbar)
             }
+            CommandGroup(after: .newItem) {
+                Button("Open Folder…") { openFolder() }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+            }
+        }
+    }
+
+    private func openFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            _ = url.startAccessingSecurityScopedResource()
+            workspace.setRoot(url: url, stopAccessing: {
+                url.stopAccessingSecurityScopedResource()
+            })
         }
     }
 
@@ -70,8 +85,8 @@ struct MdEditorApp: App {
             types.insert(md, at: 0)
         }
         panel.allowedContentTypes = types
-        if panel.runModal() == .OK {
-            fileURL = panel.url
+        if panel.runModal() == .OK, let url = panel.url {
+            _ = workspace.tabs.open(fileURL: url)
         }
     }
 }

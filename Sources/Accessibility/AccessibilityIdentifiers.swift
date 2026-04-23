@@ -31,4 +31,27 @@ enum AccessibilityIdentifiers {
 
     // View menu (D5)
     static let viewMenuToggleToolbar = "md-editor.menu.view.toggle-toolbar"
+
+    // Workspace — sidebar, tree, tabs, empty state (D6)
+    static let folderTree = "md-editor.sidebar.folder-tree"
+    static let sidebarToggleButton = "md-editor.sidebar.toggle"
+    static let tabBar = "md-editor.tabs.bar"
+    static let emptyEditor = "md-editor.empty-editor"
+    static let openFolderMenuItem = "md-editor.menu.file.open-folder"
+    static let viewMenuToggleSidebar = "md-editor.menu.view.toggle-sidebar"
+
+    /// Per-row and per-tab identifiers use the URL path (for tree rows)
+    /// or document UUID (for tabs) so tests can target a specific row
+    /// or tab reliably.
+    static func folderTreeRow(url: URL) -> String {
+        "md-editor.sidebar.folder-tree.row:\(url.path)"
+    }
+
+    static func tabButton(documentID: UUID) -> String {
+        "md-editor.tabs.tab:\(documentID.uuidString)"
+    }
+
+    static func tabCloseButton(documentID: UUID) -> String {
+        "md-editor.tabs.close:\(documentID.uuidString)"
+    }
 }

@@ -15,5 +15,14 @@ final class AppSettings: ObservableObject {
     /// default for the priority-1 audience (Word/Docs users).
     @AppStorage("toolbarVisible") var toolbarVisible: Bool = true
 
+    /// Sidebar (folder tree) visibility. Default true when a workspace
+    /// is open; users can hide via View → Hide Sidebar for a cleaner
+    /// reading view.
+    @AppStorage("sidebarVisible") var sidebarVisible: Bool = true
+
+    /// Sidebar width in points. macOS convention is 220–280; D6 picks
+    /// 240. Persists user adjustments across launches.
+    @AppStorage("sidebarWidth") var sidebarWidth: Double = 240
+
     private init() {}
 }

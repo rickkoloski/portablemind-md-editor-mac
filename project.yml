@@ -1,0 +1,91 @@
+name: MdEditor
+options:
+  bundleIdPrefix: ai.portablemind.md-editor
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  Markdown:
+    url: https://github.com/swiftlang/swift-markdown
+    from: 0.3.0
+
+targets:
+  MdEditor:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+        excludes:
+          - "**/README.md"
+    dependencies:
+      - package: Markdown
+        product: Markdown
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDevelopmentRegion: en
+        CFBundleDisplayName: MdEditor
+        CFBundleName: MdEditor
+        CFBundleShortVersionString: 0.1.0
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.productivity
+        LSMinimumSystemVersion: "14.0"
+        LSUIElement: false
+        NSHumanReadableCopyright: "© 2026 PortableMind"
+        NSPrincipalClass: NSApplication
+        NSSupportsAutomaticTermination: true
+        NSSupportsSuddenTermination: false
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Markdown Document
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Default
+            LSItemContentTypes:
+              - net.daringfireball.markdown
+              - public.plain-text
+        SUFeedURL: ""
+        SUPublicEDKey: ""
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.portablemind.md-editor
+        PRODUCT_NAME: MdEditor
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.10"
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        COMBINE_HIDPI_IMAGES: YES
+
+  MdEditorUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: MdEditor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.portablemind.md-editor.uitests
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.10"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        TEST_TARGET_NAME: MdEditor
+
+schemes:
+  MdEditor:
+    build:
+      targets:
+        MdEditor: all
+        MdEditorUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - MdEditorUITests

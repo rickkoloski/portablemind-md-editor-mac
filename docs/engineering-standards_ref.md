@@ -74,6 +74,13 @@ Decisions that keep direct-download distribution (Developer ID + notarization + 
 - **Consequence of violation:** UI tests silently pass on element-not-found, OR fail cryptically once a view moves across refactors, OR (D2's case) fail on the most basic "did the app launch?" assertion because the window's AX classification isn't what the shortcut query expects.
 - **Surfaced in:** D1 (source-side discipline); D2 (test-side discipline).
 
+### 2.3 Keyboard bindings are a declarative table
+- **Rule:** Every keyboard shortcut that triggers an app command is declared exactly once, in `Sources/Keyboard/KeyboardBindings.swift`. Never inline a chord check elsewhere in the codebase — no `event.keyCode == …`, no `event.charactersIgnoringModifiers == "b"` scattered across views or controllers. If you need a new shortcut, add a row to the table and route through `CommandDispatcher`.
+- **Reason:** Keeps externalization to a data file (JSON/YAML, per-OS translation for Windows/Linux, user-configurable preferences) a one-hour refactor instead of a codebase treasure hunt. Also makes the complete binding set greppable for compliance audits and accessibility review.
+- **Consequence of violation:** Silent command collisions (two call sites respond to the same chord), missed commands on other OSes when we port, impossible-to-predict behavior when we eventually add user preferences.
+- **Enforcement (current):** `rg --type swift 'event\\.keyCode|event\\.charactersIgnoringModifiers' Sources/` must show only `KeyboardBindings.swift` hits. Future: pre-commit hook.
+- **Surfaced in:** D4 (introduction of the first keyboard bindings; CD called out the externalization question explicitly).
+
 ### 2.2 Never access `NSTextView.layoutManager` — TextKit 2 only
 - **Rule:** Code that touches `NSTextView` uses `textLayoutManager` exclusively. The property `layoutManager` is never referenced, not even in diagnostics, not even in comments-with-real-code.
 - **Reason:** D1 finding #1 — accessing `.layoutManager` lazy-creates a TextKit 1 layout manager and silently flips the view's code path. Our entire text-rendering architecture depends on being in the TextKit 2 path.
@@ -98,3 +105,5 @@ Add sections by number; keep each section self-contained with the rule + reason 
 ## Change log
 
 - **2026-04-22** — Initial creation. Section 1 (Deployment readiness) populated from the D1 → D2 transition conversation. Section 2 populated from D1 findings #1 and #5.
+- **2026-04-22 (D2 close)** — §2.1 strengthened to include test-side identifier discipline; §2.2 unchanged.
+- **2026-04-22 (D4 kickoff)** — §2.3 added (keyboard bindings as a declarative table) to preserve cheap externalization to a data file for later cross-OS sharing and user preferences. Rule is preventive: stops debt from accumulating before it becomes hard to undo.

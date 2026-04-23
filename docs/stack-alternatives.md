@@ -70,6 +70,8 @@ This is the deep one. The content area — the thing the user actually types int
 
 ### Recommendation: TextKit 2
 
+> **Validated by D1 (2026-04-22).** The TextKit 2 feasibility spike produced a green recommendation. See `docs/current_work/stepwise_results/d01_textkit2_live_render_spike_COMPLETE.md`. The attribute-based collapse/reveal mechanism works; all behaviors required by the vision are reachable; the five findings surfaced are renderer-level bugs and design gaps, not TextKit 2 limitations. No pivot needed.
+
 **Why.** TextKit 2 was specifically rebuilt to make live-rendering editors like this tractable on Apple platforms — exactly the job we need done. It gives us:
 
 - Proper native text rendering (kerning, ligatures, font fallback, international scripts, RTL) without fighting the browser.

@@ -59,6 +59,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"
         DEVELOPMENT_TEAM: ""
+        GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: TextKit2LiveRenderSpike
 
 schemes:

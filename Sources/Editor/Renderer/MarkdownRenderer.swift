@@ -51,6 +51,10 @@ private final class RenderVisitor {
     let converter: SourceLocationConverter
     var assignments: [AttributeAssignment] = []
     var spans: [SyntaxSpan] = []
+    /// Nesting state — inline formatting (Strong / Emphasis) inside a
+    /// heading should preserve the heading's font size, not shrink
+    /// back to body size. Set on entry to a Heading, restored on exit.
+    private var currentHeadingLevel: Int = 0
 
     init(nsSource: NSString, converter: SourceLocationConverter) {
         self.nsSource = nsSource
@@ -82,14 +86,24 @@ private final class RenderVisitor {
                 tagDelimiter(markerRange)
             }
         }
+        let prior = currentHeadingLevel
+        currentHeadingLevel = heading.level
         for child in heading.children { walk(child) }
+        currentHeadingLevel = prior
     }
 
     private func visitStrong(_ strong: Strong) {
         if let range = sourceNSRange(strong) {
+            // D4 finding: when Strong is inside a Heading, applying the
+            // body-sized bold font overwrites the heading font and
+            // shrinks the text. Keep the heading font (already bold by
+            // construction) in that case.
+            let font: NSFont = currentHeadingLevel > 0
+                ? Typography.headingFont(level: currentHeadingLevel)
+                : Typography.boldFont
             assignments.append(AttributeAssignment(
                 range: range,
-                attributes: [.font: Typography.boldFont]
+                attributes: [.font: font]
             ))
             tagWrappingDelimiters(range: range, markerLength: 2)
         }
@@ -98,9 +112,15 @@ private final class RenderVisitor {
 
     private func visitEmphasis(_ emphasis: Emphasis) {
         if let range = sourceNSRange(emphasis) {
+            // Same reasoning as Strong: inside a heading, keep the
+            // heading's font so the size stays correct. (Proper bold-
+            // italic trait composition deferred as polish.)
+            let font: NSFont = currentHeadingLevel > 0
+                ? Typography.headingFont(level: currentHeadingLevel)
+                : Typography.italicFont
             assignments.append(AttributeAssignment(
                 range: range,
-                attributes: [.font: Typography.italicFont]
+                attributes: [.font: font]
             ))
             tagWrappingDelimiters(range: range, markerLength: 1)
         }

@@ -67,7 +67,10 @@ struct EditorContainer: NSViewRepresentable {
         let cursorTracker = CursorLineTracker()
         let watcher = ExternalEditWatcher()
         private(set) var loadedFileURL: URL?
-        private var documentType: (any DocumentType)?
+        // Default to markdown so the untitled/blank buffer live-renders
+        // without requiring the user to open a file first. When a file
+        // is opened, loadFileIfNeeded reassigns based on its extension.
+        private var documentType: (any DocumentType)? = MarkdownDocumentType()
 
         func wireExternalEditCallback() {
             watcher.onChange = { [weak self] newText in

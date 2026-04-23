@@ -1,7 +1,8 @@
 # D4: Mutation Primitives + Keyboard Bindings — Specification
 
-**Status:** Draft
+**Status:** Complete
 **Created:** 2026-04-22
+**Completed:** 2026-04-22 — see `docs/current_work/stepwise_results/d04_mutation_primitives_COMPLETE.md`
 **Author:** Rick (CD) + Claude (CC)
 **Depends On:** D2 (real project + document-type registry + renderer)
 **Traces to:** `docs/vision.md` Principle 1 (Level 1 audience — Word/Docs users); `docs/competitive-analysis.md` scoping question Q6 (keyboard contract); `docs/roadmap_ref.md` (D4 = mutations, D5 = toolbar UI); `docs/stack-alternatives.md` architecture lessons #5 (toolbar taxonomy), #6 (keyboard shortcut map)

@@ -13,8 +13,8 @@ Rough ordering of planned deliverables so that current work has context for what
 |---|---|---|
 | D1 | TextKit 2 live-render feasibility spike | ✅ Complete — GREEN recommendation |
 | D2 | Project scaffolding — promote spike to real project | ✅ Complete — 2026-04-22 |
-| **D4** | **Source-mutation primitives + keyboard bindings** (bold / italic / inline code / link / heading 0–6 / bullet / numbered). No UI yet. | **Triad drafted, awaiting implementation (next)** |
-| D5 | Formatting toolbar — visible buttons wired to D4's primitives + View → Show/Hide Toolbar | Planned; first user-visible "real feature" for the priority-1 audience |
+| D4 | Source-mutation primitives + keyboard bindings (bold / italic / inline code / link / heading 0–6 / bullet / numbered). No UI yet. | ✅ Complete — 2026-04-22 |
+| **D5** | **Formatting toolbar** — visible buttons wired to D4's primitives + View → Show/Hide Toolbar | **Next** — first user-visible feature for the priority-1 audience |
 | D3 | Packaging — Sparkle + DMG + Developer ID + notarization | **Deferred** by CD preference — to be scheduled when we hit a vision-feature threshold OR when a second machine needs the app. Number retained; do not reuse. |
 | D6+ | **PortableMind integration** — connected mode, Submit → status transition, document↔entity association, tenant sign-in | Planned post-D5 per CD. Bridges the standalone app (D1–D5) to the PortableMind ecosystem per `docs/portablemind-positioning.md`. |
 
@@ -47,3 +47,4 @@ Items on the table but not yet ordered. Most will slot into D6+ or later.
 
 - **2026-04-22** — Initial creation. D1 complete; D2 triad drafted; D3–D5 sketched; PortableMind integration positioned post-D5 per CD's direction during D2 spec review.
 - **2026-04-22 (later)** — D2 complete. D3 deferred by CD preference ("packaging only when we hit a threshold of vision features, unless it creates technical risk"). D4 (mutation primitives + keyboard bindings) is next; triad drafted. Ordering is now D4 → D5 → D3 → D6+, with D numbers stable (never reused) per SDLC conventions.
+- **2026-04-22 (later still)** — D4 complete. 13 mutations working end-to-end via keyboard, uniform toggle semantics, code-block safety, one-step undo. Four findings surfaced during validation, three fixed in-deliverable (untitled buffer live-render, Strong-inside-Heading font, Shift-chord binding semantics); one UX-polish (`[text]()` empty parens) deferred. i18n caveat on keyboard shortcuts noted for later. D5 (formatting toolbar) is next.

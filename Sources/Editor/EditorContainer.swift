@@ -51,6 +51,12 @@ struct EditorContainer: NSViewRepresentable {
             NSLog("TEXTKIT2-WARNING: textLayoutManager is nil — NOT on TextKit 2 code path")
         }
 
+        // Publish this text view as the active dispatch target so the
+        // global SwiftUI toolbar (and View menu) can route commands to
+        // it. Single-window shortcut per D5 plan; migrate to
+        // @FocusedValue when multi-window lands.
+        EditorDispatcherRegistry.shared.register(for: textView)
+
         scroll.documentView = textView
         return scroll
     }

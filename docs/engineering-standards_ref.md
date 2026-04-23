@@ -69,10 +69,10 @@ Decisions that keep direct-download distribution (Developer ID + notarization + 
 ## Section 2 — Test & accessibility discipline
 
 ### 2.1 accessibilityIdentifier on every interactive NSView (and identifier-only queries in tests)
-- **Rule:** Every `NSView` (or AppKit control) that a user or test might interact with has an `accessibilityIdentifier` set at construction, derived from a shared constants file. **XCUITest source code must also honor this** — query by identifier via `app.descendants(matching: .any)["id"]`, never via element-type shortcuts like `app.windows.firstMatch`, `app.textViews.firstMatch`, or `app.buttons.firstMatch`.
+- **Rule:** Every `NSView` (or AppKit control) that a user or test might interact with has an `accessibilityIdentifier` set at construction, derived from a shared constants file. **XCUITest source code must also honor this** — query by identifier via `app.descendants(matching: .any)["id"].firstMatch`, never via element-type shortcuts like `app.windows.firstMatch`, `app.textViews.firstMatch`, or `app.buttons.firstMatch`. The `.firstMatch` resolver is required because SwiftUI's `Button { Label(…) }` produces nested AX nodes that inherit the outer identifier — a bare identifier query can legitimately return multiple elements.
 - **Reason:** D1 finding #5 — `XCUIApplication.textViews` and similar element-type queries do not reliably classify Cocoa-in-SwiftUI views. D2 reinforced the lesson: even `app.windows.firstMatch` failed to match our SwiftUI window, not just the inner text view. Identifier-based queries are always reliable, and Apple documents this as the recommended approach.
 - **Consequence of violation:** UI tests silently pass on element-not-found, OR fail cryptically once a view moves across refactors, OR (D2's case) fail on the most basic "did the app launch?" assertion because the window's AX classification isn't what the shortcut query expects.
-- **Surfaced in:** D1 (source-side discipline); D2 (test-side discipline).
+- **Surfaced in:** D1 (source-side discipline); D2 (test-side discipline); D5 (refined query shape with `.firstMatch` for SwiftUI-hosted nested AX nodes).
 
 ### 2.3 Keyboard bindings are a declarative table
 - **Rule:** Every keyboard shortcut that triggers an app command is declared exactly once, in `Sources/Keyboard/KeyboardBindings.swift`. Never inline a chord check elsewhere in the codebase — no `event.keyCode == …`, no `event.charactersIgnoringModifiers == "b"` scattered across views or controllers. If you need a new shortcut, add a row to the table and route through `CommandDispatcher`.
@@ -107,3 +107,4 @@ Add sections by number; keep each section self-contained with the rule + reason 
 - **2026-04-22** — Initial creation. Section 1 (Deployment readiness) populated from the D1 → D2 transition conversation. Section 2 populated from D1 findings #1 and #5.
 - **2026-04-22 (D2 close)** — §2.1 strengthened to include test-side identifier discipline; §2.2 unchanged.
 - **2026-04-22 (D4 kickoff)** — §2.3 added (keyboard bindings as a declarative table) to preserve cheap externalization to a data file for later cross-OS sharing and user preferences. Rule is preventive: stops debt from accumulating before it becomes hard to undo.
+- **2026-04-22 (D5 close)** — §2.1 refined: the required UITest query shape is `descendants(matching:.any)["id"].firstMatch` (with the `.firstMatch` resolver) because SwiftUI's `Button { Label(…) }` produces nested AX nodes that share the outer identifier. Surfaced during the D5 MutationToolbarTests first run.

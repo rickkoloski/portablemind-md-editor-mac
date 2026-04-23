@@ -1,7 +1,8 @@
 # D5: Formatting Toolbar — Specification
 
-**Status:** Draft
+**Status:** Complete
 **Created:** 2026-04-22
+**Completed:** 2026-04-22 — see `docs/current_work/stepwise_results/d05_formatting_toolbar_COMPLETE.md`
 **Author:** Rick (CD) + Claude (CC)
 **Depends On:** D4 (mutation primitives + keyboard bindings + dispatcher)
 **Traces to:** `docs/vision.md` Principle 1 (Level 1 audience — Word/Docs users need visible formatting controls); `docs/competitive-analysis.md` Typora anti-pattern (buried format menu); `docs/roadmap_ref.md` (D5 = toolbar, first user-visible feature); `docs/engineering-standards_ref.md` §2.1 (identifier-based queries).

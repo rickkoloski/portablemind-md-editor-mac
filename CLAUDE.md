@@ -63,24 +63,68 @@ Completed work is chronicled in `docs/chronicle_by_concept/` (by domain) and `do
 ```
 apps/md-editor-mac/
 ├── CLAUDE.md                       This file
-└── docs/
-    ├── vision.md                   Foundation ref
-    ├── competitive-analysis.md     Foundation ref
-    ├── portablemind-positioning.md Foundation ref
-    ├── stack-alternatives.md       Foundation ref
-    ├── current_work/               Active deliverables
-    ├── chronicle_by_concept/       Completed work by domain
-    ├── chronicle_by_step/          Completed work by time
-    └── templates/                  Artifact templates
+├── project.yml                     xcodegen source for the real app
+├── Info.plist                      generated from project.yml on xcodegen
+├── MdEditor.xcodeproj/             generated; committed for reproducibility
+├── Sources/                        App + all modules (see below)
+│   ├── App/                        SwiftUI entry, window scene, Open…
+│   ├── DocumentTypes/              Registry + Markdown type; JSON/YAML
+│   │                               plug in here later
+│   ├── Editor/                     TextKit 2 hosting + live-render
+│   │   └── Renderer/               Markdown parser + cursor-on-line
+│   ├── Files/                      NSFilePresenter external-edit watcher
+│   ├── Accessibility/              Identifier constants
+│   ├── Support/                    Typography, shared render types
+│   ├── Handoff/                    stub (D6+)
+│   ├── Toolbar/                    stub (D5)
+│   ├── Keyboard/                   stub (D4)
+│   ├── Settings/                   stub (TBD)
+│   └── Localization/               Localizable.xcstrings
+├── UITests/                        XCUITests (launch smoke + future)
+├── scripts/env.sh                  DEVELOPER_DIR helper
+├── docs/
+│   ├── vision.md                   Foundation ref
+│   ├── competitive-analysis.md     Foundation ref
+│   ├── portablemind-positioning.md Foundation ref
+│   ├── stack-alternatives.md       Foundation ref
+│   ├── engineering-standards_ref.md Cross-deliverable rules
+│   ├── roadmap_ref.md              Informal ordering
+│   ├── current_work/               Active deliverables
+│   ├── chronicle_by_concept/       Completed work by domain
+│   ├── chronicle_by_step/          Completed work by time
+│   └── templates/                  Artifact templates
+└── spikes/
+    └── d01_textkit2/               [FROZEN] D1 reference, do not modify
 ```
-
-The Xcode project and source code will be added under `apps/md-editor-mac/` once D2 scaffolding lands. D1 is a throwaway spike, so it may live under a `spikes/` directory or a separate Xcode project that doesn't ship.
 
 ---
 
 ## Running the project
 
-*Not yet — D1 is a TextKit 2 feasibility spike (throwaway). D2 will establish the real Xcode project and populate this section with build/run/test commands.*
+Pane 2 (or any shell) from the repo root:
+
+```bash
+source scripts/env.sh                          # sets DEVELOPER_DIR for Xcode
+xcodegen generate                              # (re)generate MdEditor.xcodeproj
+xcodebuild -project MdEditor.xcodeproj \
+           -scheme MdEditor \
+           -configuration Debug \
+           -derivedDataPath ./.build-xcode \
+           build
+open ./.build-xcode/Build/Products/Debug/MdEditor.app
+```
+
+Run the UITest smoke check:
+
+```bash
+xcodebuild -project MdEditor.xcodeproj \
+           -scheme MdEditor \
+           -destination 'platform=macOS' \
+           -derivedDataPath ./.build-xcode \
+           test
+```
+
+First-run UITest on a new machine pops a macOS Accessibility/Automation permission dialog — grant Allow; the grant persists. See `docs/engineering-standards_ref.md` §2.1.
 
 ---
 

@@ -1,38 +1,35 @@
-# D1: TextKit 2 Live-Render Spike
+# [FROZEN] D1 TextKit 2 Spike — Do Not Modify
 
-**Status:** In Progress
-**Purpose:** Throwaway Xcode/SPM sample app that validates TextKit 2's ability to deliver the live-render markdown UX for md-editor-mac.
+**This spike has been promoted to `apps/md-editor-mac/` (the real project) in D2 (2026-04-22).**
 
-See:
-- `../../docs/current_work/specs/d01_textkit2_live_render_spike_spec.md`
-- `../../docs/current_work/planning/d01_textkit2_live_render_spike_plan.md`
+It is retained here as a minimal known-good reference — useful if we ever need to compare against a stripped-down implementation or reproduce a subtle behavior. **It must not be modified.** If you find a discrepancy between this spike and the real app, update the real app; the spike stays frozen.
 
-## Layout
+Context:
+- Spec: `../../docs/current_work/specs/d01_textkit2_live_render_spike_spec.md`
+- Plan: `../../docs/current_work/planning/d01_textkit2_live_render_spike_plan.md`
+- Findings / recommendation: `../../docs/current_work/stepwise_results/d01_textkit2_live_render_spike_COMPLETE.md`
+
+The five findings surfaced by this spike (`.layoutManager` trap, initial-render pre-collapse, InlineCode range, CodeBlock range + fence tagging, XCUITest accessibilityIdentifier discipline) were all applied during the D2 lift. They are captured durably in `../../docs/engineering-standards_ref.md`.
+
+## Layout (unchanged from the D1 spike)
 
 ```
 d01_textkit2/
-├── Package.swift                    SPM manifest, SwiftUI macOS exec + swift-markdown dep
-├── Sources/TextKit2LiveRenderSpike/ Swift sources
-├── samples/                         Test markdown files (sample-01…sample-05)
-├── evidence/                        Screen recording, transcript, Instruments trace
-├── scripts/env.sh                   Sets DEVELOPER_DIR to Xcode
+├── Package.swift                    SPM manifest, SwiftUI macOS exec
+├── Sources/TextKit2LiveRenderSpike/ Swift sources (6 files)
+├── samples/                         5 test markdown files
+├── evidence/                        Demo transcript from D1
+├── scripts/env.sh                   DEVELOPER_DIR helper
 └── README.md                        This file
 ```
 
-## Build
+## If you need to run the spike
 
 ```bash
 source scripts/env.sh
 swift build
-swift run TextKit2LiveRenderSpike
+# SPM-run gives no foreground window; the real .app bundle lived at
+#   .build-xcode/Build/Products/Debug/TextKit2LiveRenderSpike.app
+# after `xcodegen generate && xcodebuild build`, but .build-xcode/ is
+# gitignored so you'd need to regenerate.
 ```
-
-Once XcodeGen is set up:
-```bash
-xcodegen generate
-open TextKit2LiveRenderSpike.xcodeproj
-```
-
-## Disposable
-
-This is a spike. The code is not intended for reuse as-is. Value = findings doc + evidence.

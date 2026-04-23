@@ -60,6 +60,7 @@
 		BF47DBE8DD260AAF71874D12 /* LineNumberRulerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F61A04D941BAF0ECBD6E57F /* LineNumberRulerView.swift */; };
 		C4B09F580815ABDDE420685F /* LaunchSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BA7C352C4BEA557B5E5A07A /* LaunchSmokeTests.swift */; };
 		D2E5C80D28F7F100982EB876 /* BoldMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E1E708BEBADEEC6BBCD3E2 /* BoldMutation.swift */; };
+		D87846C8B4A004B93B646AB0 /* SetViewCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408E9C472E809997158FDC0B /* SetViewCommand.swift */; };
 		EB39075ABB7FA96955213606 /* FolderTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B5DFD3FDD072F772FC2A07 /* FolderTreeView.swift */; };
 		EE45FB6087116ECA1BB182BE /* MutationHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C80DE85975844E9F6898D021 /* MutationHelpers.swift */; };
 		F8421E4664863007B6773E37 /* EditorDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D086F044F795F5BE8F33D4 /* EditorDocument.swift */; };
@@ -92,6 +93,7 @@
 		38B8648E855C0852B13DBD8B /* InlineCodeMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineCodeMutation.swift; sourceTree = "<group>"; };
 		3CBAA081C0FC098EFA83A8EC /* URLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSchemeHandler.swift; sourceTree = "<group>"; };
 		3F61A04D941BAF0ECBD6E57F /* LineNumberRulerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberRulerView.swift; sourceTree = "<group>"; };
+		408E9C472E809997158FDC0B /* SetViewCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetViewCommand.swift; sourceTree = "<group>"; };
 		4D7CFB400CAB34EABC74D518 /* BulletListMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BulletListMutation.swift; sourceTree = "<group>"; };
 		553EA0392CDEB0455C90FC2F /* WorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStore.swift; sourceTree = "<group>"; };
 		5C1ABD3965302A0DADDB34BE /* ToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolbarButton.swift; sourceTree = "<group>"; };
@@ -203,6 +205,7 @@
 				2915770F0DE907514BFA4BCB /* ExternalCommand.swift */,
 				69817DBA04965C17C8E978A7 /* OpenFileCommand.swift */,
 				C72B9481B2B2DEC236C3C389 /* OpenFolderCommand.swift */,
+				408E9C472E809997158FDC0B /* SetViewCommand.swift */,
 				3CBAA081C0FC098EFA83A8EC /* URLSchemeHandler.swift */,
 			);
 			path = CommandSurface;
@@ -504,6 +507,7 @@
 				889FAC8100CC57FC80459DF7 /* OpenFolderCommand.swift in Sources */,
 				56408ED1057CE7107CBEEC31 /* RenderTypes.swift in Sources */,
 				5B8EA51A489DEF23F9347DE7 /* SecurityScopedBookmarkStore.swift in Sources */,
+				D87846C8B4A004B93B646AB0 /* SetViewCommand.swift in Sources */,
 				10CBD81277CBDAB157886D44 /* SourceLocationConverter.swift in Sources */,
 				07A1F1E2E8DAACE51B02FDC5 /* StringLineLocation.swift in Sources */,
 				6A29B99B1BC477966EFD6F57 /* TabBarView.swift in Sources */,

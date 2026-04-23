@@ -16,6 +16,7 @@ enum CommandSurface {
     private static let registry: [ExternalCommandIdentifier: any ExternalCommand.Type] = [
         OpenFileCommand.identifier: OpenFileCommand.self,
         OpenFolderCommand.identifier: OpenFolderCommand.self,
+        SetViewCommand.identifier: SetViewCommand.self,
     ]
 
     // MARK: - Pending-event queue

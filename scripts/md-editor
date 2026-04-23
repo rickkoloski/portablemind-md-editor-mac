@@ -2,32 +2,64 @@
 # md-editor — thin CLI wrapper over the md-editor:// URL scheme.
 #
 # Usage:
-#   md-editor                 # launch/activate the app (use File →
-#                             #   Open Folder… from inside)
-#   md-editor <file>          # open file in a tab (focus if already
-#                             #   open); launch app if not running
-#   md-editor <directory>     # set as workspace root; launch app
-#                             #   if not running
+#   md-editor                            # launch/activate the app
+#   md-editor <file>                     # open file in a tab
+#   md-editor <directory>                # set as workspace root
+#   md-editor <file>:<line>              # open + caret at line (D9)
+#   md-editor <file>:<line>:<col>        # open + caret at line:col (D9)
 #
-# This script does not embed any command semantics of its own; it
-# computes the absolute path, URL-encodes it, composes an
-# md-editor:// URL, and hands it to `open`. macOS launches MdEditor
-# if it is not already running.
+#   Flags (D11, composable with any of the above, or used standalone):
+#     --line-numbers=on|off              # set line-number visibility
 #
 # Engineering-standards §2.4: all external-entry handling happens
 # inside Sources/CommandSurface/. This script is a courier, not a
-# handler.
+# handler. **Discipline:** state-setter flags pass through the
+# declared value (on/off). Never introduce a `--toggle` form.
 
 set -euo pipefail
 
 BUNDLE_ID="ai.portablemind.md-editor"
 
-target="${1:-}"
+# D11: parse flags first (any order), leaving one positional arg.
+line_numbers=""
+positional=()
+for arg in "$@"; do
+  case "$arg" in
+    --line-numbers=*)
+      line_numbers="${arg#--line-numbers=}"
+      ;;
+    --)
+      : # separator — future
+      ;;
+    -*)
+      echo "md-editor: unknown flag: $arg" >&2
+      exit 2
+      ;;
+    *)
+      positional+=("$arg")
+      ;;
+  esac
+done
+
+if [[ ${#positional[@]} -gt 1 ]]; then
+  echo "md-editor: too many positional arguments: ${positional[*]}" >&2
+  exit 2
+fi
+target="${positional[0]:-}"
+
+# Compose view-state query param (for open/set-view URLs).
+view_qs=""
+if [[ -n "$line_numbers" ]]; then
+  view_qs="&line_numbers=${line_numbers}"
+fi
+
 if [[ -z "$target" ]]; then
-  # No argument → launch (or activate) the app. `open -b` uses the
-  # bundle identifier registered in LaunchServices; works for both
-  # dev builds (registered on first launch by Xcode) and installed
-  # builds.
+  if [[ -n "$line_numbers" ]]; then
+    # Standalone view-state set — no file/folder.
+    open "md-editor://set-view?line_numbers=${line_numbers}"
+    exit 0
+  fi
+  # Plain launch/activate.
   open -b "$BUNDLE_ID"
   exit 0
 fi
@@ -67,9 +99,10 @@ absolute="$(cd "$(dirname "$target")" && pwd)/$(basename "$target")"
 encoded="$(python3 -c 'import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$absolute")"
 
 if [[ -d "$absolute" ]]; then
-  open "md-editor://open-folder?path=$encoded"
+  url="md-editor://open-folder?path=$encoded"
+  open "$url"
 else
-  url="md-editor://open?path=$encoded&tab=existing"
+  url="md-editor://open?path=$encoded&tab=existing${view_qs}"
   if [[ -n "$line" ]]; then
     url="${url}&line=${line}"
   fi

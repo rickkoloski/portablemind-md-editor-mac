@@ -12,6 +12,7 @@ import Foundation
 enum ExternalCommandIdentifier: String {
     case openFile = "open"
     case openFolder = "open-folder"
+    case setView = "set-view"
 }
 
 /// An external command. Implementations operate on the

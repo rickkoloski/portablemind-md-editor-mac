@@ -32,6 +32,11 @@ enum OpenFileCommand: ExternalCommand {
         let forceNewTab = (params["tab"] ?? "existing") == "new"
         let doc = workspace.tabs.open(fileURL: url, forceNewTab: forceNewTab)
 
+        // D11: view-state params (e.g. line_numbers=on) can ride along
+        // on the open command. Apply them through the same applicator
+        // that SetViewCommand uses so semantics are identical.
+        ViewStateApplier.apply(params: params)
+
         if let doc, let lineStr = params["line"], let line = Int(lineStr) {
             let column = params["column"].flatMap(Int.init) ?? 1
             doc.pendingFocusTarget = .caret(line: line, column: column)

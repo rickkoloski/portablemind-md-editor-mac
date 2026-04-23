@@ -30,7 +30,7 @@ Rationale and alternatives considered are in `docs/stack-alternatives.md`. The "
 
 ## Foundation documents (project-level references)
 
-Four docs sit at `docs/` root as the project's north star. Every deliverable should trace back to at least one of them:
+Five docs sit at `docs/` root as the project's north star. Every deliverable should trace back to at least one of them, and every deliverable spec must honor the standards in `docs/engineering-standards_ref.md`.
 
 | Doc | What it decides |
 |---|---|
@@ -38,6 +38,7 @@ Four docs sit at `docs/` root as the project's north star. Every deliverable sho
 | `docs/competitive-analysis.md` | Sourced competitive landscape (Typora, iA Writer, Obsidian, Bear, Ulysses, Mark Text, Zed) with dimension matrix and 10 scoping questions. |
 | `docs/portablemind-positioning.md` | How md-editor relates to the PortableMind ecosystem. Standalone-capable, PortableMind-aware. |
 | `docs/stack-alternatives.md` | The committed macOS stack and the architecture lessons to extract for Windows/Linux. |
+| `docs/engineering-standards_ref.md` | **Cross-deliverable rules that survive session turnover and context compaction.** Sandbox-safe source, locked bundle ID, Info.plist completeness, `accessibilityIdentifier` on every view, never touch `NSTextView.layoutManager`. Every spec must honor these; deferrals must be explicit. |
 
 ---
 

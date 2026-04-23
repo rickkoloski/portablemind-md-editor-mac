@@ -32,6 +32,9 @@ enum AccessibilityIdentifiers {
     // View menu (D5)
     static let viewMenuToggleToolbar = "md-editor.menu.view.toggle-toolbar"
 
+    // View menu (D10)
+    static let viewMenuToggleLineNumbers = "md-editor.menu.view.toggle-line-numbers"
+
     // Workspace — sidebar, tree, tabs, empty state (D6)
     static let folderTree = "md-editor.sidebar.folder-tree"
     static let sidebarToggleButton = "md-editor.sidebar.toggle"

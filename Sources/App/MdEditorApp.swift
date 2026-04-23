@@ -82,6 +82,12 @@ struct MdEditorApp: App {
                 }
                 .keyboardShortcut("t", modifiers: [.command, .option])
                 .accessibilityIdentifier(AccessibilityIdentifiers.viewMenuToggleToolbar)
+
+                Button(settings.lineNumbersVisible ? "Hide Line Numbers" : "Show Line Numbers") {
+                    settings.lineNumbersVisible.toggle()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .option])
+                .accessibilityIdentifier(AccessibilityIdentifiers.viewMenuToggleLineNumbers)
             }
             CommandGroup(after: .newItem) {
                 Button("Open Folder…") { openFolder() }

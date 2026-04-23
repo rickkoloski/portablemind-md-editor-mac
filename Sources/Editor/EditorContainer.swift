@@ -19,6 +19,7 @@ import SwiftUI
 /// being in the TextKit 2 path.
 struct EditorContainer: NSViewRepresentable {
     @ObservedObject var document: EditorDocument
+    @ObservedObject var settings: AppSettings = .shared
 
     func makeCoordinator() -> Coordinator {
         Coordinator(document: document)
@@ -66,6 +67,8 @@ struct EditorContainer: NSViewRepresentable {
         EditorDispatcherRegistry.shared.register(for: textView)
 
         scroll.documentView = textView
+        syncLineNumberRuler(in: scroll, textView: textView,
+                            coordinator: context.coordinator)
         return scroll
     }
 
@@ -75,6 +78,34 @@ struct EditorContainer: NSViewRepresentable {
         // cross-document swap here. Within-document state changes
         // (text reloaded from disk, etc.) flow through the Combine
         // subscription wired in `wireDocumentSubscription()`.
+        if let textView = nsView.documentView as? LiveRenderTextView {
+            syncLineNumberRuler(in: nsView, textView: textView,
+                                coordinator: context.coordinator)
+        }
+    }
+
+    /// Attach or detach the line-number ruler based on current
+    /// settings. Idempotent — called from both makeNSView and
+    /// updateNSView.
+    private func syncLineNumberRuler(in scroll: NSScrollView,
+                                     textView: LiveRenderTextView,
+                                     coordinator: Coordinator) {
+        if settings.lineNumbersVisible {
+            if coordinator.ruler == nil {
+                scroll.hasVerticalRuler = true
+                let ruler = LineNumberRulerView(textView: textView)
+                scroll.verticalRulerView = ruler
+                scroll.rulersVisible = true
+                coordinator.ruler = ruler
+            }
+        } else {
+            if coordinator.ruler != nil {
+                scroll.rulersVisible = false
+                scroll.verticalRulerView = nil
+                scroll.hasVerticalRuler = false
+                coordinator.ruler = nil
+            }
+        }
     }
 
     // MARK: - Coordinator
@@ -82,6 +113,7 @@ struct EditorContainer: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var textView: LiveRenderTextView?
+        var ruler: LineNumberRulerView?
         let cursorTracker = CursorLineTracker()
         private let document: EditorDocument
         private var cancellables: Set<AnyCancellable> = []
@@ -176,6 +208,7 @@ struct EditorContainer: NSViewRepresentable {
                 document.source = current
             }
             renderCurrentText(in: textView)
+            ruler?.invalidate()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

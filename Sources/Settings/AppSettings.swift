@@ -24,5 +24,10 @@ final class AppSettings: ObservableObject {
     /// 240. Persists user adjustments across launches.
     @AppStorage("sidebarWidth") var sidebarWidth: Double = 240
 
+    /// Line-number gutter visibility. Default false per vision Principle
+    /// 1 audience-1 (Word/Docs users expect clean margin, not code-
+    /// editor gutter). Turn on via View → Show Line Numbers.
+    @AppStorage("lineNumbersVisible") var lineNumbersVisible: Bool = false
+
     private init() {}
 }

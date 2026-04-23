@@ -38,7 +38,18 @@ final class CursorLineTracker {
         let nsText = storage.string as NSString
         guard selectedRange.location <= nsText.length else { return }
 
-        let currentLineRange = nsText.lineRange(for: NSRange(location: selectedRange.location, length: 0))
+        // Default: current line is the paragraph containing the caret.
+        var currentLineRange = nsText.lineRange(for: NSRange(location: selectedRange.location, length: 0))
+
+        // Reveal-scope extension: if the caret's character carries a
+        // revealScopeKey attribute, use its attached NSRange instead.
+        // This is how fenced code blocks reveal their fence lines when
+        // the caret enters the (line-separated) content.
+        let scopeProbeIndex = min(selectedRange.location, max(0, storage.length - 1))
+        if storage.length > 0,
+           let scope = storage.attribute(Typography.revealScopeKey, at: scopeProbeIndex, effectiveRange: nil) as? NSValue {
+            currentLineRange = scope.rangeValue
+        }
 
         if let existing = revealedLineRange, NSEqualRanges(existing, currentLineRange) {
             return

@@ -34,4 +34,14 @@ struct Typography {
     /// Attribute key used to tag delimiter ranges so CursorLineTracker
     /// can find and collapse/reveal them without re-parsing.
     static let syntaxRoleKey = NSAttributedString.Key("MdEditorSyntaxRole")
+
+    /// Attribute key used to attach a "reveal scope" to content whose
+    /// delimiters live on different lines from the content (most
+    /// notably fenced code blocks). When the caret enters any character
+    /// carrying this attribute, the tracker treats the attached NSRange
+    /// as the current-line range — so fences on neighboring lines
+    /// reveal together with the block content.
+    ///
+    /// Value is an `NSValue` wrapping the block's full NSRange.
+    static let revealScopeKey = NSAttributedString.Key("MdEditorRevealScope")
 }

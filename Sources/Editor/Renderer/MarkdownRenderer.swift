@@ -150,6 +150,13 @@ private final class RenderVisitor {
         // Finding #4 fix: tag opening and closing fence lines as
         // delimiters so they collapse/reveal like other markdown syntax.
         tagFenceLines(in: range)
+        // Extend the reveal scope across the whole block so clicking
+        // into the content reveals the fences (which otherwise sit on
+        // collapsed, unclickable lines).
+        assignments.append(AttributeAssignment(
+            range: range,
+            attributes: [Typography.revealScopeKey: NSValue(range: range)]
+        ))
     }
 
     // MARK: - Range helpers

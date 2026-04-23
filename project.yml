@@ -46,6 +46,11 @@ targets:
               - public.plain-text
         SUFeedURL: ""
         SUPublicEDKey: ""
+        CFBundleURLTypes:
+          - CFBundleURLName: ai.portablemind.md-editor.url-scheme
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - md-editor
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.portablemind.md-editor

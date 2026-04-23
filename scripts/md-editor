@@ -1,0 +1,37 @@
+#!/bin/bash
+# md-editor — thin CLI wrapper over the md-editor:// URL scheme.
+#
+# Usage:
+#   md-editor <path>          # file → open in a tab (focus if open)
+#   md-editor <directory>     # directory → set as workspace root
+#
+# This script does not embed any command semantics of its own; it
+# computes the absolute path, URL-encodes it, composes an
+# md-editor:// URL, and hands it to `open`. macOS launches MdEditor
+# if it is not already running.
+#
+# Engineering-standards §2.4: all external-entry handling happens
+# inside Sources/CommandSurface/. This script is a courier, not a
+# handler.
+
+set -euo pipefail
+
+target="${1:-}"
+if [[ -z "$target" ]]; then
+  echo "usage: md-editor <path>" >&2
+  exit 2
+fi
+
+if [[ ! -e "$target" ]]; then
+  echo "md-editor: no such file or directory: $target" >&2
+  exit 1
+fi
+
+absolute="$(cd "$(dirname "$target")" && pwd)/$(basename "$target")"
+encoded="$(python3 -c 'import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$absolute")"
+
+if [[ -d "$absolute" ]]; then
+  open "md-editor://open-folder?path=$encoded"
+else
+  open "md-editor://open?path=$encoded&tab=existing"
+fi

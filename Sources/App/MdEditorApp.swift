@@ -11,7 +11,13 @@ struct MdEditorApp: App {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some Scene {
-        WindowGroup {
+        // Use `Window` (single-window) rather than `WindowGroup`:
+        // WindowGroup spawns a new window on every external event
+        // (URL scheme, document-open), which doesn't match our
+        // single-window workspace model. D6 finding surfaced during
+        // CLI dogfood — three `./scripts/md-editor …` invocations
+        // produced three windows on one process.
+        Window("MdEditor", id: "main") {
             WorkspaceView(workspace: workspace, settings: settings)
                 .frame(minWidth: 900, minHeight: 560)
                 .background(WindowAccessor { window in

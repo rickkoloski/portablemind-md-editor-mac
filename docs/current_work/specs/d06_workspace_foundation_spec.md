@@ -1,7 +1,8 @@
 # D6: Workspace Foundation — Folder Navigation, Tabs, and External Command Surface — Specification
 
-**Status:** Draft
+**Status:** Complete
 **Created:** 2026-04-23
+**Completed:** 2026-04-23 — see `docs/current_work/stepwise_results/d06_workspace_foundation_COMPLETE.md`
 **Author:** Rick (CD) + Claude (CC)
 **Depends On:** D2 (Xcode project, NSFilePresenter pattern, DocumentType registry), D5 (toolbar dispatch via ObservableObject registry — same pattern scales to tab state)
 **Traces to:** `docs/vision.md` Principle 1 (HITL agentic loops over folder-of-markdown); `docs/competitive-analysis.md` (Obsidian validates the vault/folder model; iA Writer Library; all three demonstrate tab UX); `docs/portablemind-positioning.md` (standalone-capable with external command integration); `docs/roadmap_ref.md` (D6 bumped ahead of post-D5 placeholders per CD); `docs/engineering-standards_ref.md` §2.4 (just added — external command surface declarative)

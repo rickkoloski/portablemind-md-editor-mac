@@ -15,8 +15,9 @@ Rough ordering of planned deliverables so that current work has context for what
 | D2 | Project scaffolding — promote spike to real project | ✅ Complete — 2026-04-22 |
 | D4 | Source-mutation primitives + keyboard bindings (bold / italic / inline code / link / heading 0–6 / bullet / numbered). No UI yet. | ✅ Complete — 2026-04-22 |
 | D5 | Formatting toolbar — visible buttons wired to D4's primitives + View → Show/Hide Toolbar | ✅ Complete — 2026-04-22 |
-| D3 | Packaging — Sparkle + DMG + Developer ID + notarization | **Deferred** by CD preference — to be scheduled when we hit a vision-feature threshold OR when a second machine needs the app. Number retained; do not reuse. |
-| D6+ | **PortableMind integration** — connected mode, Submit → status transition, document↔entity association, tenant sign-in | Planned post-D5 per CD. Bridges the standalone app (D1–D5) to the PortableMind ecosystem per `docs/portablemind-positioning.md`. |
+| D6 | Workspace foundation — folder tree sidebar, tabs, multi-file external-edit, CommandSurface + URL scheme + CLI wrapper | ✅ Complete — 2026-04-23 |
+| D3 | Packaging — Sparkle + DMG + Developer ID + notarization | **Deferred** — gates on Apple Developer Program renewal (per `memory/md_editor_apple_developer_state.md`) |
+| **D7+** | **PortableMind integration** — connected mode, Submit → status transition, document↔entity association, tenant sign-in, MCP adapter as a second caller of CommandSurface | Now unblocked by D6's workspace + CommandSurface primitives |
 
 ## Candidates (unscheduled)
 

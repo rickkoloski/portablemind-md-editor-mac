@@ -54,6 +54,12 @@ struct EditorContainer: NSViewRepresentable {
 
         if let tlm = textView.textLayoutManager {
             NSLog("TEXTKIT2-OK: textLayoutManager=\(tlm)")
+            // D8: install the table layout delegate. It swaps in custom
+            // TableRowFragment instances for paragraphs tagged with the
+            // table row attachment attribute.
+            let tableDelegate = TableLayoutManagerDelegate()
+            context.coordinator.tableLayoutDelegate = tableDelegate
+            tlm.delegate = tableDelegate
         } else {
             NSLog("TEXTKIT2-WARNING: textLayoutManager is nil — NOT on TextKit 2 code path")
         }
@@ -114,6 +120,9 @@ struct EditorContainer: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var textView: LiveRenderTextView?
         var ruler: LineNumberRulerView?
+        /// D8: strong ref so the NSTextLayoutManager delegate stays
+        /// alive for the text view's lifetime.
+        var tableLayoutDelegate: TableLayoutManagerDelegate?
         let cursorTracker = CursorLineTracker()
         private let document: EditorDocument
         private var cancellables: Set<AnyCancellable> = []

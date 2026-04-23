@@ -10,12 +10,15 @@ import Markdown
 /// conversion logic in one place where it can be unit-tested in
 /// isolation.
 ///
-/// Note on column semantics: swift-markdown uses 1-based UTF-8 byte
-/// columns. For ASCII content (our realistic worst case during heavy
-/// HITL work), byte == UTF-16 code unit. For multibyte content this is
-/// approximate; D2 accepts that — when we hit a real problem, we revisit.
+/// Column semantics: swift-markdown uses 1-based UTF-8 byte columns.
+/// D8 revisit: the naive "byte == UTF-16 code unit" assumption broke
+/// on rows containing ✅ (3 UTF-8 bytes, 1 UTF-16 code unit) — cell
+/// source ranges landed 2 UTF-16 offsets too far into the next cell.
+/// This converter now walks grapheme-clusters accumulating UTF-8 byte
+/// length while tracking the matching UTF-16 offset.
 final class SourceLocationConverter {
     private let source: NSString
+    private let swiftSource: String
     /// UTF-16 offset of the start of each 1-based line.
     /// `lineStarts[0]` = 0 (start of line 1).
     /// `lineStarts.count` = number of lines + 1 (last entry = end-of-string
@@ -23,6 +26,7 @@ final class SourceLocationConverter {
     private let lineStarts: [Int]
 
     init(source: String) {
+        self.swiftSource = source
         let ns = source as NSString
         self.source = ns
         var starts = [0]
@@ -39,13 +43,39 @@ final class SourceLocationConverter {
         self.lineStarts = starts
     }
 
-    /// UTF-16 offset of the given 1-based line+column. Clamped to the
-    /// string length. Returns NSNotFound only for clearly invalid lines.
+    /// UTF-16 offset of the given 1-based line+column (column is in
+    /// UTF-8 bytes). Clamped to the string length. Returns NSNotFound
+    /// only for clearly invalid lines.
     func nsOffset(line: Int, column: Int) -> Int {
         guard line >= 1, line < lineStarts.count else { return NSNotFound }
-        let base = lineStarts[line - 1]
-        let columnOffset = max(0, column - 1)
-        return min(base + columnOffset, source.length)
+        let lineStartUTF16 = lineStarts[line - 1]
+        let targetBytes = max(0, column - 1)
+        if targetBytes == 0 { return lineStartUTF16 }
+
+        // Map the UTF-16 line-start back to a Swift String.Index and
+        // walk grapheme clusters until we've consumed `targetBytes`
+        // UTF-8 bytes. Return the running UTF-16 offset at that point.
+        let startIdx = String.Index(
+            utf16Offset: lineStartUTF16,
+            in: swiftSource
+        )
+
+        var bytesConsumed = 0
+        var utf16Consumed = 0
+        var idx = startIdx
+        while bytesConsumed < targetBytes, idx < swiftSource.endIndex {
+            let char = swiftSource[idx]
+            if char == "\n" { break }
+            let b = char.utf8.count
+            if bytesConsumed + b > targetBytes {
+                // Target lies inside this grapheme — snap to cluster boundary.
+                break
+            }
+            bytesConsumed += b
+            utf16Consumed += char.utf16.count
+            idx = swiftSource.index(after: idx)
+        }
+        return min(lineStartUTF16 + utf16Consumed, source.length)
     }
 
     func nsOffset(for location: SourceLocation) -> Int {

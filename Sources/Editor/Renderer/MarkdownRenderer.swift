@@ -69,6 +69,8 @@ private final class RenderVisitor {
         case let inlineCode as InlineCode: visitInlineCode(inlineCode)
         case let link as Link: visitLink(link)
         case let codeBlock as CodeBlock: visitCodeBlock(codeBlock)
+        case let table as Table:
+            visitTable(table)
         default:
             for child in markup.children { walk(child) }
         }
@@ -177,6 +179,200 @@ private final class RenderVisitor {
             range: range,
             attributes: [Typography.revealScopeKey: NSValue(range: range)]
         ))
+    }
+
+    /// D8: precompute a `TableLayout` for this table and tag each
+    /// source line (head, separator, body rows) with a
+    /// `TableRowAttachment`. The layout-manager delegate swaps in
+    /// `TableRowFragment` instances at render time.
+    ///
+    /// swift-markdown `Table.Head` is itself the header row (a
+    /// `TableCellContainer`, not a wrapper around a `Table.Row`). Its
+    /// cells live directly under it. `Table.Body` wraps multiple
+    /// rows. We treat head as row-with-cells for layout purposes.
+    ///
+    /// Row source ranges reported by swift-markdown can overshoot the
+    /// single logical line (trailing newline, next-row prefix). We
+    /// clamp each row to its source line via newline detection so the
+    /// attachment attribute doesn't leak into the next paragraph.
+    private func visitTable(_ table: Table) {
+        guard let tableRange = sourceNSRange(table), tableRange.length > 0
+        else {
+            for child in table.children { walk(child) }
+            return
+        }
+
+        // Extract cells from each row. Head IS the header row.
+        let headCells: [Table.Cell] = table.head.children.compactMap { $0 as? Table.Cell }
+        let bodyRows: [Table.Row] = table.body.children.compactMap { $0 as? Table.Row }
+        let bodyRowCells: [[Table.Cell]] = bodyRows.map { row in
+            row.children.compactMap { $0 as? Table.Cell }
+        }
+
+        let columnCount = max(headCells.count,
+                              bodyRowCells.map(\.count).max() ?? 0)
+        guard columnCount > 0 else { return }
+
+        // Build per-row cell attributed strings. V1 cell renderer =
+        // plain source substring (trimmed), with bold font on header.
+        var cellContentPerRow: [[NSAttributedString]] = []
+        cellContentPerRow.append(
+            renderCells(headCells,
+                        font: Typography.boldFont,
+                        padTo: columnCount)
+        )
+        for rowCells in bodyRowCells {
+            cellContentPerRow.append(
+                renderCells(rowCells,
+                            font: Typography.baseFont,
+                            padTo: columnCount)
+            )
+        }
+
+        // Measure column widths: max natural width per column, capped
+        // so a single wide cell doesn't eat the viewport. Cells wider
+        // than the cap wrap within the column.
+        let columnCap: CGFloat = 320
+        var widths: [CGFloat] = Array(repeating: 0, count: columnCount)
+        for rowCells in cellContentPerRow {
+            for (col, cell) in rowCells.enumerated() where col < columnCount {
+                widths[col] = max(widths[col], min(cell.size().width, columnCap))
+            }
+        }
+        widths = widths.map { max($0, 60) }
+
+        let layout = TableLayout(
+            columnCount: columnCount,
+            contentWidths: widths,
+            alignments: table.columnAlignments,
+            cellContentPerRow: cellContentPerRow
+        )
+
+        let headerLineRange = clampedLineRange(
+            startingNear: sourceNSRange(table.head)?.location ?? tableRange.location,
+            within: tableRange
+        )
+        if let headerLineRange = headerLineRange {
+            assignments.append(AttributeAssignment(
+                range: headerLineRange,
+                attributes: [
+                    TableAttributeKeys.rowAttachmentKey: TableRowAttachment(
+                        layout: layout,
+                        kind: .header,
+                        cellContentIndex: 0,
+                        isFirstRow: true,
+                        isLastRow: false)
+                ]
+            ))
+
+            // Separator line is the line immediately after the header.
+            let afterHeader = NSMaxRange(headerLineRange) + 1 // skip the \n
+            if let sepLineRange = clampedLineRange(
+                startingNear: afterHeader,
+                within: tableRange
+            ) {
+                assignments.append(AttributeAssignment(
+                    range: sepLineRange,
+                    attributes: [
+                        TableAttributeKeys.rowAttachmentKey: TableRowAttachment(
+                            layout: layout,
+                            kind: .separator,
+                            cellContentIndex: nil,
+                            isFirstRow: false,
+                            isLastRow: false)
+                    ]
+                ))
+            }
+        }
+
+        // Body rows — tag each clamped to its own line.
+        let totalRowCount = 1 + bodyRows.count
+        for (bodyIdx, row) in bodyRows.enumerated() {
+            let rawStart = sourceNSRange(row)?.location ?? 0
+            guard let clamped = clampedLineRange(
+                startingNear: rawStart,
+                within: tableRange
+            ) else { continue }
+            let rowIdx = bodyIdx + 1 // index 0 = header
+            let isLast = rowIdx == totalRowCount - 1
+            assignments.append(AttributeAssignment(
+                range: clamped,
+                attributes: [
+                    TableAttributeKeys.rowAttachmentKey: TableRowAttachment(
+                        layout: layout,
+                        kind: .body,
+                        cellContentIndex: rowIdx,
+                        isFirstRow: false,
+                        isLastRow: isLast)
+                ]
+            ))
+        }
+    }
+
+    /// Render a list of cells to attributed strings and pad out to
+    /// `columnCount` with empty cells if the row is short.
+    private func renderCells(_ cells: [Table.Cell],
+                             font: NSFont,
+                             padTo columnCount: Int) -> [NSAttributedString] {
+        var out: [NSAttributedString] = []
+        for cell in cells {
+            out.append(cellContent(for: cell, font: font))
+        }
+        while out.count < columnCount {
+            out.append(NSAttributedString(
+                string: "",
+                attributes: [.font: font,
+                             .foregroundColor: NSColor.labelColor]))
+        }
+        return out
+    }
+
+    /// Find the line range starting at or after `startingNear`,
+    /// clamped so it stops at the first newline (exclusive). Line
+    /// must begin within `tableRange`. Returns `nil` if the start is
+    /// out of bounds.
+    private func clampedLineRange(startingNear start: Int,
+                                  within tableRange: NSRange) -> NSRange? {
+        let length = nsSource.length
+        let tableEnd = NSMaxRange(tableRange)
+        let newline = unichar(UnicodeScalar("\n").value)
+        var begin = start
+        // If `start` landed mid-line, rewind to the start of that line.
+        while begin > 0, begin - 1 < length,
+              nsSource.character(at: begin - 1) != newline {
+            begin -= 1
+            if begin <= tableRange.location { break }
+        }
+        guard begin < length, begin < tableEnd else { return nil }
+        var end = begin
+        while end < length, end < tableEnd, nsSource.character(at: end) != newline {
+            end += 1
+        }
+        let len = end - begin
+        guard len > 0 else { return nil }
+        return NSRange(location: begin, length: len)
+    }
+
+    /// Extract plain-text cell content from source by taking only the
+    /// first line (cell's range can overshoot into the next row in
+    /// swift-markdown's representation for trailing cells) and
+    /// stripping surrounding `|` + whitespace. V1 default renderer.
+    private func cellContent(for cell: Table.Cell, font: NSFont) -> NSAttributedString {
+        let range = sourceNSRange(cell) ?? NSRange(location: 0, length: 0)
+        let rawText: String
+        if range.length > 0, NSMaxRange(range) <= nsSource.length {
+            rawText = nsSource.substring(with: range)
+        } else {
+            rawText = cell.plainText
+        }
+        let firstLine = rawText.components(separatedBy: "\n").first ?? rawText
+        let trimmed = firstLine.trimmingCharacters(in: .init(charactersIn: "| \t"))
+        return NSAttributedString(
+            string: trimmed,
+            attributes: [
+                .font: font,
+                .foregroundColor: NSColor.labelColor
+            ])
     }
 
     // MARK: - Range helpers

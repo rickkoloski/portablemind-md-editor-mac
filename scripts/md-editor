@@ -2,8 +2,12 @@
 # md-editor — thin CLI wrapper over the md-editor:// URL scheme.
 #
 # Usage:
-#   md-editor <path>          # file → open in a tab (focus if open)
-#   md-editor <directory>     # directory → set as workspace root
+#   md-editor                 # launch/activate the app (use File →
+#                             #   Open Folder… from inside)
+#   md-editor <file>          # open file in a tab (focus if already
+#                             #   open); launch app if not running
+#   md-editor <directory>     # set as workspace root; launch app
+#                             #   if not running
 #
 # This script does not embed any command semantics of its own; it
 # computes the absolute path, URL-encodes it, composes an
@@ -16,10 +20,16 @@
 
 set -euo pipefail
 
+BUNDLE_ID="ai.portablemind.md-editor"
+
 target="${1:-}"
 if [[ -z "$target" ]]; then
-  echo "usage: md-editor <path>" >&2
-  exit 2
+  # No argument → launch (or activate) the app. `open -b` uses the
+  # bundle identifier registered in LaunchServices; works for both
+  # dev builds (registered on first launch by Xcode) and installed
+  # builds.
+  open -b "$BUNDLE_ID"
+  exit 0
 fi
 
 if [[ ! -e "$target" ]]; then

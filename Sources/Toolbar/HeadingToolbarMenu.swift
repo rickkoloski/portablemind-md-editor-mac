@@ -24,6 +24,8 @@ struct HeadingToolbarMenu: View {
         } label: {
             Label("Heading", systemImage: "textformat")
                 .labelStyle(.iconOnly)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color(red: 222/255, green: 222/255, blue: 222/255))
         }
         .help("Heading")
         .disabled(registry.activeDispatch == nil)

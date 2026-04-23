@@ -11,6 +11,8 @@ struct ToolbarButton: View {
         Button(action: invoke) {
             Label(action.title, systemImage: action.systemImage)
                 .labelStyle(.iconOnly)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color(red: 222/255, green: 222/255, blue: 222/255))
         }
         .help(action.helpText)
         .disabled(registry.activeDispatch == nil)

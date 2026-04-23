@@ -30,17 +30,39 @@ struct MdEditorApp: App {
                     URLSchemeHandler.handle(url, workspace: workspace)
                 }
                 .toolbar {
-                    ToolbarItem(placement: .navigation) {
-                        Button(action: openFolder) { Text("Open Folder…") }
-                            .keyboardShortcut("o", modifiers: [.command, .shift])
-                            .accessibilityIdentifier(AccessibilityIdentifiers.openFolderMenuItem)
-                    }
-                    ToolbarItem(placement: .navigation) {
-                        Button(action: openFile) { Text("Open…") }
-                            .keyboardShortcut("o", modifiers: .command)
-                            .accessibilityIdentifier(AccessibilityIdentifiers.openFileButton)
-                    }
+                    // All icons in one ToolbarItemGroup with an explicit
+                    // vertical Rectangle as a visual divider between
+                    // the file-mgmt group and the formatting group.
+                    // (SwiftUI's Divider() renders horizontally in
+                    // this context — needed an explicit shape.)
                     ToolbarItemGroup(placement: .automatic) {
+                        Button(action: openFolder) {
+                            Label("Open Folder…", systemImage: "folder")
+                                .labelStyle(.iconOnly)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(Color(red: 222/255, green: 222/255, blue: 222/255))
+                        }
+                        .help("Open Folder… (⇧⌘O)")
+                        .keyboardShortcut("o", modifiers: [.command, .shift])
+                        .accessibilityIdentifier(AccessibilityIdentifiers.openFolderMenuItem)
+                        .accessibilityLabel("Open Folder…")
+
+                        Button(action: openFile) {
+                            Label("Open…", systemImage: "doc.text")
+                                .labelStyle(.iconOnly)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(Color(red: 222/255, green: 222/255, blue: 222/255))
+                        }
+                        .help("Open… (⌘O)")
+                        .keyboardShortcut("o", modifiers: .command)
+                        .accessibilityIdentifier(AccessibilityIdentifiers.openFileButton)
+                        .accessibilityLabel("Open…")
+
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.35))
+                            .frame(width: 1, height: 16)
+                            .padding(.horizontal, 4)
+
                         ToolbarButton(action: .bold)
                         ToolbarButton(action: .italic)
                         ToolbarButton(action: .inlineCode)

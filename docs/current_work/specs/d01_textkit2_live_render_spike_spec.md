@@ -122,6 +122,29 @@ A **yellow** outcome is acceptable and expected — TextKit 2 is known to have s
 
 ---
 
+## 4.5 Validation approach
+
+Testing follows the Native lifecycle's Phase 1 (exploratory) as the minimum gate (`~/src/ops/sdlc/lifecycles/native.md` §6). **Phases 2–4 are skipped** (no markdown test-spec suite, no generated Playwright-equivalent, no deterministic CI run) because this deliverable is a disposable spike whose single output is a written decision, not a shipping feature. That rationale is recorded here per Native §6's requirement.
+
+**Testing method** — manual exploratory demonstration of each required behavior in §2, executed against a small curated set of sample `.md` files, with a screen recording as primary evidence and a written transcript of observations as secondary evidence.
+
+**Evidence artifacts** — the deliverable is not Complete until all of these are produced and checked into the repo alongside the findings document:
+- A screen recording (Cmd+Shift+5) of the full demo run
+- A written transcript noting per-step observations, surprises, and failures, keyed to the demo-script step numbers
+- Xcode console log output captured for the demo session
+- One Instruments trace covering the performance bar (below)
+- System Information snapshot: macOS version, Xcode version, Swift version — for reproducibility
+
+**One automated check — the cursor-on-line litmus.** A single `XCUITest` that programmatically types into the editor, moves the caret, and asserts that the rendered attributes on the bold-range change between "delimiters visible" and "delimiters collapsed." Scope justified for two reasons: (a) the litmus is the single most important behavior in the spike, worth machine-verifying; (b) attempting it is itself a signal for later UI-test strategy — it tells us whether TextKit 2's accessibility tree exposes the text/attribute state that XCUITest needs. If the test cannot be written cleanly, that outcome is a finding worth recording.
+
+**Performance bar** — subjective observation of caret responsiveness on a 5,000-line real markdown file (we'll use a representative doc from our own `docs/` set for realism), paired with one Instruments measurement: the median time spent in the selection-change handler during a 500-line caret sweep must be under 16ms (one display frame at 60Hz). A single number, a single method, a single file — not a performance benchmark, just a sanity check.
+
+**Evidence quality expectation** — a "yellow" finding (TextKit 2 works with caveats) is expected; the evidence must be specific enough that the decision between yellow and red is defensible. "The cursor-on-line reveal worked but felt janky" is not sufficient; "the cursor-on-line reveal worked but the Instruments trace shows a 42ms median, so we need to investigate batching attribute changes before committing to TextKit 2 for the real app" is.
+
+Detailed demo-script steps (file contents, keystroke-by-keystroke procedures, XCUITest code, Instruments recipe) belong in the **plan document** (`d01_textkit2_live_render_spike_plan.md`), not in this spec.
+
+---
+
 ## 5. Out of Scope
 
 - Production-quality code, architecture, or tests in the spike

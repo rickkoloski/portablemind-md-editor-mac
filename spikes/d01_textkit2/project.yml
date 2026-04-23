@@ -1,0 +1,75 @@
+name: TextKit2LiveRenderSpike
+options:
+  bundleIdPrefix: ai.portablemind.md-editor.spike
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  Markdown:
+    url: https://github.com/swiftlang/swift-markdown
+    from: 0.3.0
+
+targets:
+  TextKit2LiveRenderSpike:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/TextKit2LiveRenderSpike
+    resources:
+      - path: samples
+    dependencies:
+      - package: Markdown
+        product: Markdown
+    info:
+      path: Info.plist
+      properties:
+        CFBundleName: TextKit2LiveRenderSpike
+        CFBundleShortVersionString: 0.1.0
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: "Spike — disposable"
+        NSPrincipalClass: NSApplication
+        NSMainStoryboardFile: ""
+        LSUIElement: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.portablemind.md-editor.spike.d01
+        ENABLE_HARDENED_RUNTIME: NO
+        GENERATE_INFOPLIST_FILE: NO
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.10"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+
+  TextKit2LiveRenderSpikeUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: TextKit2LiveRenderSpike
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.portablemind.md-editor.spike.d01.uitests
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.10"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        TEST_TARGET_NAME: TextKit2LiveRenderSpike
+
+schemes:
+  TextKit2LiveRenderSpike:
+    build:
+      targets:
+        TextKit2LiveRenderSpike: all
+        TextKit2LiveRenderSpikeUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - TextKit2LiveRenderSpikeUITests

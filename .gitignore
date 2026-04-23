@@ -8,6 +8,7 @@ Icon?
 # Xcode
 build/
 DerivedData/
+.build-xcode/
 *.xcuserstate
 xcuserdata/
 *.xcscmblueprint

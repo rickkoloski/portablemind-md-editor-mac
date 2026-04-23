@@ -32,6 +32,32 @@ if [[ -z "$target" ]]; then
   exit 0
 fi
 
+# D9: parse trailing `:line` or `:line:column` suffix (vim/grep style).
+# Only strip the suffix if the literal path doesn't exist but the
+# stripped form does — preserves behavior for the rare macOS file
+# whose name contains an actual colon.
+line=""
+column=""
+if [[ ! -e "$target" ]]; then
+  if [[ "$target" =~ ^(.+):([0-9]+):([0-9]+)$ ]]; then
+    candidate="${BASH_REMATCH[1]}"
+    candidate_line="${BASH_REMATCH[2]}"
+    candidate_col="${BASH_REMATCH[3]}"
+    if [[ -e "$candidate" ]]; then
+      target="$candidate"
+      line="$candidate_line"
+      column="$candidate_col"
+    fi
+  elif [[ "$target" =~ ^(.+):([0-9]+)$ ]]; then
+    candidate="${BASH_REMATCH[1]}"
+    candidate_line="${BASH_REMATCH[2]}"
+    if [[ -e "$candidate" ]]; then
+      target="$candidate"
+      line="$candidate_line"
+    fi
+  fi
+fi
+
 if [[ ! -e "$target" ]]; then
   echo "md-editor: no such file or directory: $target" >&2
   exit 1
@@ -43,5 +69,12 @@ encoded="$(python3 -c 'import urllib.parse, sys; print(urllib.parse.quote(sys.ar
 if [[ -d "$absolute" ]]; then
   open "md-editor://open-folder?path=$encoded"
 else
-  open "md-editor://open?path=$encoded&tab=existing"
+  url="md-editor://open?path=$encoded&tab=existing"
+  if [[ -n "$line" ]]; then
+    url="${url}&line=${line}"
+  fi
+  if [[ -n "$column" ]]; then
+    url="${url}&column=${column}"
+  fi
+  open "$url"
 fi

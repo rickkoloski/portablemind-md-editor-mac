@@ -17,6 +17,11 @@ final class EditorDocument: ObservableObject, Identifiable {
     @Published var url: URL?
     @Published var source: String
     @Published var externallyDeleted: Bool = false
+    /// D9: an external command (CLI / URL scheme / future MCP) can
+    /// request that the editor place the caret at a specific target
+    /// after the document is shown. The EditorContainer's coordinator
+    /// consumes this and clears it back to `nil` on apply.
+    @Published var pendingFocusTarget: EditorFocusTarget? = nil
 
     let documentType: any DocumentType
 

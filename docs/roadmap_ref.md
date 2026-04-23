@@ -17,6 +17,8 @@ Rough ordering of planned deliverables so that current work has context for what
 | D5 | Formatting toolbar — visible buttons wired to D4's primitives + View → Show/Hide Toolbar | ✅ Complete — 2026-04-22 |
 | D6 | Workspace foundation — folder tree sidebar, tabs, multi-file external-edit, CommandSurface + URL scheme + CLI wrapper | ✅ Complete — 2026-04-23 |
 | D3 | Packaging — Sparkle + DMG + Developer ID + notarization | **Deferred** — gates on Apple Developer Program renewal (per `memory/md_editor_apple_developer_state.md`) |
+| D8 | GFM table rendering — reveal-scoped grid | 📝 Triad drafted — 2026-04-23 |
+| D9 | Scroll-to-line on open — CLI suffix `:42` + URL `&line=N&column=M` | ✅ Complete — 2026-04-23 |
 | **D7+** | **PortableMind integration** — connected mode, Submit → status transition, document↔entity association, tenant sign-in, MCP adapter as a second caller of CommandSurface | Now unblocked by D6's workspace + CommandSurface primitives |
 
 ## Candidates (unscheduled)

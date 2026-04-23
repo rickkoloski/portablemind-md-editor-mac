@@ -107,6 +107,61 @@ struct EditorContainer: NSViewRepresentable {
                     }
                 }
                 .store(in: &cancellables)
+
+            // D9: apply pending caret focus requests (from CLI or URL
+            // scheme) after the text view is seeded and laid out. We
+            // don't dropFirst — @Published replays the current value on
+            // subscribe, so a target set before Container creation is
+            // honored. The async hop pushes the apply past initial
+            // layout on fresh opens so scrollRangeToVisible has real
+            // geometry to work against.
+            document.$pendingFocusTarget
+                .sink { [weak self] target in
+                    guard let self, let target else { return }
+                    self.scheduleApply(target)
+                }
+                .store(in: &cancellables)
+        }
+
+        /// Defer the focus-target apply until the text view is
+        /// attached to a window and has completed an initial layout
+        /// pass. TextKit 2's `scrollRangeToVisible` silently no-ops if
+        /// the view isn't yet onscreen — which is exactly the case
+        /// during the first runloop tick after `makeNSView`.
+        /// Retry a bounded number of times before giving up.
+        private func scheduleApply(_ target: EditorFocusTarget, attempt: Int = 0) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let textView = self.textView else { return }
+                if textView.window == nil {
+                    if attempt < 30 { // ~30 * 16ms ≈ 0.5s ceiling
+                        self.scheduleApply(target, attempt: attempt + 1)
+                    }
+                    return
+                }
+                // Force TextKit 2 layout for the visible viewport so
+                // scrollRangeToVisible has real geometry.
+                if let tlm = textView.textLayoutManager,
+                   let content = tlm.textContentManager {
+                    tlm.ensureLayout(for: content.documentRange)
+                }
+                self.apply(focusTarget: target, in: textView)
+                // Clearing here published-changes-in-view-update if we
+                // were still in a SwiftUI update. Hop once more.
+                DispatchQueue.main.async {
+                    self.document.pendingFocusTarget = nil
+                }
+            }
+        }
+
+        private func apply(focusTarget target: EditorFocusTarget,
+                           in textView: LiveRenderTextView) {
+            switch target {
+            case let .caret(line, column):
+                let location = textView.string.nsLocation(forLine: line, column: column)
+                let range = NSRange(location: location, length: 0)
+                textView.setSelectedRange(range)
+                textView.scrollRangeToVisible(range)
+            }
         }
 
         // MARK: - Text changes from the user

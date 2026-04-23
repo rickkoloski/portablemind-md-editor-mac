@@ -14,4 +14,12 @@ import Foundation
 /// lazy-creates a TextKit 1 manager and silently flips the code path.
 final class LiveRenderTextView: NSTextView {
     override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        if let binding = KeyboardBindings.match(event: event),
+           CommandDispatcher.shared.dispatch(identifier: binding.commandIdentifier, in: self) {
+            return
+        }
+        super.keyDown(with: event)
+    }
 }

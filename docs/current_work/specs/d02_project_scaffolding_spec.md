@@ -1,7 +1,8 @@
 # D2: Project Scaffolding — Promote Spike to Real Project — Specification
 
-**Status:** Draft
+**Status:** Complete
 **Created:** 2026-04-22
+**Completed:** 2026-04-22 — see `docs/current_work/stepwise_results/d02_project_scaffolding_COMPLETE.md`
 **Author:** Rick (CD) + Claude (CC)
 **Depends On:** D1 (TextKit 2 spike, complete with GREEN recommendation)
 **Traces to:** `docs/stack-alternatives.md` (module structure reflects the nine cross-OS abstractions); `docs/engineering-standards_ref.md` (all five standards must be honored from this deliverable forward); `docs/vision.md` Principle 2 (genuinely native); `docs/current_work/stepwise_results/d01_textkit2_live_render_spike_COMPLETE.md` (the five findings are fixed as part of D2)

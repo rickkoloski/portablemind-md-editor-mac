@@ -68,11 +68,11 @@ Decisions that keep direct-download distribution (Developer ID + notarization + 
 
 ## Section 2 — Test & accessibility discipline
 
-### 2.1 accessibilityIdentifier on every interactive NSView
-- **Rule:** Every `NSView` (or AppKit control) that a user or test might interact with has an `accessibilityIdentifier` set at construction, derived from a shared constants file.
-- **Reason:** D1 finding #5 — `XCUIApplication.textViews` and similar element-type queries do not reliably classify Cocoa-in-SwiftUI views. Identifier-based queries are always reliable, and Apple documents this as the recommended approach.
-- **Consequence of violation:** UI tests silently pass on element-not-found, OR fail cryptically once a view moves across refactors.
-- **Surfaced in:** D1 (XCUITest finding).
+### 2.1 accessibilityIdentifier on every interactive NSView (and identifier-only queries in tests)
+- **Rule:** Every `NSView` (or AppKit control) that a user or test might interact with has an `accessibilityIdentifier` set at construction, derived from a shared constants file. **XCUITest source code must also honor this** — query by identifier via `app.descendants(matching: .any)["id"]`, never via element-type shortcuts like `app.windows.firstMatch`, `app.textViews.firstMatch`, or `app.buttons.firstMatch`.
+- **Reason:** D1 finding #5 — `XCUIApplication.textViews` and similar element-type queries do not reliably classify Cocoa-in-SwiftUI views. D2 reinforced the lesson: even `app.windows.firstMatch` failed to match our SwiftUI window, not just the inner text view. Identifier-based queries are always reliable, and Apple documents this as the recommended approach.
+- **Consequence of violation:** UI tests silently pass on element-not-found, OR fail cryptically once a view moves across refactors, OR (D2's case) fail on the most basic "did the app launch?" assertion because the window's AX classification isn't what the shortcut query expects.
+- **Surfaced in:** D1 (source-side discipline); D2 (test-side discipline).
 
 ### 2.2 Never access `NSTextView.layoutManager` — TextKit 2 only
 - **Rule:** Code that touches `NSTextView` uses `textLayoutManager` exclusively. The property `layoutManager` is never referenced, not even in diagnostics, not even in comments-with-real-code.

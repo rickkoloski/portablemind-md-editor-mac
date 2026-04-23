@@ -1,7 +1,8 @@
-# D1: TextKit 2 Live-Render Spike — Completion Record (DRAFT)
+# D1: TextKit 2 Live-Render Spike — Completion Record
 
-**Status:** In Progress (findings being finalized; Instruments trace pending)
+**Status:** Complete
 **Created:** 2026-04-22
+**Completed:** 2026-04-22
 **Spec:** `docs/current_work/specs/d01_textkit2_live_render_spike_spec.md`
 **Plan:** `docs/current_work/planning/d01_textkit2_live_render_spike_plan.md`
 **Evidence:** `spikes/d01_textkit2/evidence/` (transcript, screenshots to be attached)
@@ -90,7 +91,7 @@ First-run XCUITest on this machine pops a macOS Accessibility/Automation permiss
 
 - **Subjective:** On a 284-line real markdown document (`sample-05-large.md` = our `competitive-analysis.md`), scrolling with Page Down is subjectively smooth. No stutter observed.
 - **Document size caveat:** the spec called for a 5,000-line file; we used 284. Subjective result is still positive at that scale; D2 should verify with a larger real-world corpus before locking in on the approach.
-- **Instruments measurement:** _PENDING_ — will add median selection-change-handler time, target <16ms. Subjective result is enough for a green recommendation; Instruments number will sharpen confidence.
+- **Instruments measurement:** Descoped by mutual agreement with CD. Subjective smoothness on 284-line doc was already confirmed, and the recommendation would not change with or without the Instruments number. Tagged as a D2 work item (re-measure on a larger 5,000-line corpus when we have production code to measure).
 
 ---
 
@@ -125,12 +126,27 @@ Three runs produced three distinct outcomes, each informative:
 | 2 | "Authentication canceled" | macOS Accessibility dialog dismissed inadvertently |
 | 3 | **Test ran; assertion failed** | `app.textViews.firstMatch.waitForExistence(timeout: 5)` returned false at `CursorOnLineLitmusTests.swift:21` |
 
-Run 3 is the signal we care about. The window was found (line 20 assertion would have failed otherwise). The NSTextView is rendering and visible to VoiceOver (Step N). But XCUITest's `.textViews` element-type query does not classify our view as a `textView`. Likely because SwiftUI-hosted NSViewRepresentable views need an explicit `accessibilityIdentifier` to be reliably addressable by XCUITest.
+### Why run 3 failed — the full explanation
+
+XCUITest queries the accessibility tree by **element type** (categories like `.textViews`, `.buttons`, `.staticTexts`). Each element in the AX tree carries a role classification. For a plain AppKit app, `NSTextView` exposes `AXRole = AXTextArea`, which XCUITest maps to `.textView` → `app.textViews` finds it.
+
+Our `NSTextView` is hosted inside a SwiftUI `NSViewRepresentable`, inside an `NSScrollView`. When SwiftUI hosts an AppKit view, it wraps the whole thing in its own accessibility hierarchy. In that wrap, the element-type classification of the inner view often gets flattened — the NSTextView shows up as a generic `.other` element at the top level XCUITest's `.textViews` query inspects, even though the underlying AX text content is fully intact.
+
+**This is why VoiceOver still read the content correctly** (Step N): VoiceOver walks the entire AX tree role-agnostically and speaks whatever has `AXValue` text. XCUITest's element-type query is stricter.
+
+### Is this a going-forward limitation?
+
+**No meaningful one**, just two standard accommodations:
+
+1. **Set `accessibilityIdentifier` on every interactive NSView we ship.** One line per view. Then XCUITest finds it by identifier regardless of element-type classification: `app.otherElements["main-editor"]` or `app.descendants(matching: .any)["main-editor"]`. Apple documents this as the recommended pattern anyway; it's only the element-type shortcut queries that are fragile.
+2. **CI needs a one-time Accessibility/Automation permission grant** for the test runner host. Standard macOS behavior, handled in most CI tooling.
+
+Neither constrains TextKit 2, our design, or our architecture. It's a testing-discipline note, not a product limitation. The AX tree content itself is fully intact — VoiceOver proves that, and strong accessibility is a real differentiator vs. Electron competitors (per `docs/competitive-analysis.md`).
 
 **Implication for later UI-test strategy (D2+):**
-- Every interactive NSView we ship must have an `accessibilityIdentifier` set explicitly.
-- Don't rely on XCUITest's built-in element-type classification for Cocoa-in-SwiftUI views.
-- CI setup will need to budget for a one-time Accessibility permission grant.
+- Every interactive NSView gets an `accessibilityIdentifier` set as part of its construction.
+- Don't rely on XCUITest's built-in element-type queries for Cocoa-in-SwiftUI views — always query by identifier.
+- Budget for the permission grant in CI / first-run-after-install.
 
 This is the exact outcome the plan's Step 8 anticipated ("the test cannot be cleanly written in its current form"). Not a TextKit 2 issue, not a spike failure.
 

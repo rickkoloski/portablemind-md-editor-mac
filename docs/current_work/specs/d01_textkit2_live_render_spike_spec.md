@@ -1,7 +1,8 @@
 # D1: TextKit 2 Live-Render Spike — Specification
 
-**Status:** Draft
+**Status:** Complete
 **Created:** 2026-04-22
+**Completed:** 2026-04-22 — recommendation GREEN; see `docs/current_work/stepwise_results/d01_textkit2_live_render_spike_COMPLETE.md`
 **Author:** Rick (CD) + Claude (CC)
 **Depends On:** None
 **Traces to:** `docs/stack-alternatives.md` (Axis 2 decision, Open Question 6); `docs/vision.md` Principle 1 (Level 1 agent-aware, baseline editing experience)

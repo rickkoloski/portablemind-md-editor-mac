@@ -25,6 +25,9 @@ xcuserdata/
 Packages/
 Package.resolved
 
+# Spike-generated app bundles (built on demand via run.sh)
+spikes/**/*.app/
+
 # CocoaPods (not planning to use, but just in case)
 Pods/
 

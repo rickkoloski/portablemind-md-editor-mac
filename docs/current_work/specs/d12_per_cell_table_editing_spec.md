@@ -110,24 +110,36 @@ When a single-click lands in cell (r, c):
 
 The caret now lives at a source character inside the cell. But NSTextView will draw it at the source character's horizontal position, which is still wrong. §3.4 fixes the drawing.
 
-### 3.4 Caret drawing — map source offset to cell position
+### 3.4 Caret drawing — custom `NSTextSelectionDataSource`
 
-NSTextView's caret lives in the text-line-fragment coordinate space. We need the row's line fragment(s) to match the grid's cell geometry so that "source offset inside cell range" draws at "x position inside cell bounds."
+**Revised 2026-04-24** after Phase 1 spike. Original approach (override `NSTextLayoutFragment.textLineFragments` with custom typographic bounds) was invalidated by header reading — `NSTextLineFragment.typographicBounds` and `glyphOrigin` are readonly with no public setter path. Spike: `spikes/d12_cell_caret/FINDINGS.md`.
 
-Approach — let TextKit 2 reason about cells as line fragments:
+**Working approach:** install a custom `NSTextSelectionNavigation` on the text view's layout manager. The navigation is backed by a custom `NSTextSelectionDataSource` (a subclass / wrapper of `NSTextLayoutManager`'s own data-source conformance) that overrides two methods:
 
-Override `TableRowFragment.textLineFragments` to return one `NSTextLineFragment` per cell, each positioned at the cell's (x, width) with y = 0 and height = row height. Each line fragment's `attributedString` is the source substring of the cell (with the cell's pre-rendered cell.attributedString *used for drawing*, but the line fragment's string is the raw source so character offsets map correctly).
+```swift
+// Controls where the caret draws.
+func enumerateCaretOffsetsInLineFragment(
+    at location: any NSTextLocation,
+    using block: (CGFloat caretOffset, any NSTextLocation, Bool leadingEdge,
+                  UnsafeMutablePointer<ObjCBool>) -> Void)
 
-Caveats:
-- `NSTextLineFragment.typographicBounds` — **width** is the cell's content width (for x-placement and text flow), **height** is the natural line height of the cell's font (`bodyFont` or `headerFont` from `TableLayout`), NOT the row's grid height. NSTextView draws the caret at the line fragment's ascent+descent; sizing the line fragment at grid height would produce a tall, out-of-place caret (the D8.1 bug's size component). Row height is claimed by `layoutFragmentFrame` at the fragment level — padding (`cellInset.top` / `.bottom`) is *around* the line fragment, not inside its typographic bounds.
-- `NSTextLineFragment.glyphOrigin` offsets within the cell, accounting for `cellInset.top` so the line is vertically centered (or top-aligned, matching the grid's cell rendering).
-- If cell content wraps to multiple visual lines, the cell produces multiple line fragments (stacked vertically within the cell bounds, each at natural line height).
+// Controls click → source-range hit-testing.
+func lineFragmentRange(for point: CGPoint,
+                       inContainerAt location: any NSTextLocation) -> NSTextRange?
+```
 
-This is the heart of the deliverable and needs a spike before full spec commitment. See §6 Q1.
+For a table row:
 
-**Alternative** (Option A in the pre-spec design discussion): draw an NSTextField overlay at the active cell's bounds, edit via the overlay, commit on blur. Simpler in some ways, but introduces a parallel-text-editor UI with its own undo / paste / selection surface — likely more bugs long-term than the TextKit-native approach.
+- **`enumerateCaretOffsetsInLineFragment`** yields (caret-x, source-location) pairs in strict left-to-right visual order. For each source character inside a cell's range, it yields `caretX = cell's columnLeadingX + offsetWithinCell * cell's per-char x stride`. Pipe characters and inter-cell whitespace get small stub x-values outside the cell geometry (acts as a narrow "dead zone" between cells). Multi-line cells yield multiple enumerations, one per wrapped visual line.
+- **`lineFragmentRange`** hit-tests click points against each cell's geometry. If `point` falls inside cell (r, c)'s bounds, return an `NSTextRange` covering only that cell's source range. This constrains NSTextView's click-to-offset mapping to the clicked cell.
 
-Primary choice: **TextKit-native line-fragment mapping**. Fallback to overlay only if the spike proves line-fragment mapping infeasible.
+All other `NSTextSelectionDataSource` methods (`documentRange`, `enumerateSubstrings`, `locationFromLocation`, `offsetFromLocation`, `baseWritingDirection`, etc.) delegate directly to the wrapped `NSTextLayoutManager`.
+
+**Caret height:** since the line fragment's natural `typographicBounds.height` comes from CT layout of the attributed string, and we don't attach a height-forcing paragraph style on revealed tables (per §3.5), the natural font line height is used — so the caret draws at natural (~14pt) height, not grid (~35pt) height. This fixes the D8.1 size bug.
+
+**Spike evidence (2026-04-24):** a minimal SwiftPM reproducer installed a custom data source on a throwaway text view. `enumerateCaretOffsets` yielded monotonic x = 50 + 30·srcIdx (obviously shifted from natural CT layout). On click, the caret visually drew at the custom x-values (observed ~256 vs. declared 260 for source offset 7; natural CT layout for that offset would have been ~110). Source edits happened at the correct source offset independently of visual caret placement. GREEN. See `spikes/d12_cell_caret/FINDINGS.md` for full details.
+
+**Fallback (not expected to be needed):** if production-scale integration (multi-row tables, wrapped cells, selection across cells) surfaces unfixable behavior in the data-source path, an NSTextField overlay per active cell is the documented fallback. Modal is explicitly parked per CD direction and memory `md_editor_d12_break_glass_fallback.md`.
 
 ### 3.5 Fixing the D8.1 source-mode caret (position AND size)
 
@@ -221,7 +233,7 @@ Detailed steps live in the plan.
 
 ## 6. Open Questions
 
-- **Q1 (blocker):** Does `NSTextLayoutFragment.textLineFragments` allow us to position line fragments at arbitrary (x, width) within the fragment's bounds, and will NSTextView honor those bounds for caret drawing? A one-day spike answers this. If no, we fall back to NSTextField overlays.
+- **Q1 (resolved 2026-04-24):** Hypothesis was "override `NSTextLayoutFragment.textLineFragments`." **Answer: no — `NSTextLineFragment` bounds are readonly.** Revised hypothesis: custom `NSTextSelectionDataSource`. **Answer: yes — caret x is honored.** See §3.4 and `spikes/d12_cell_caret/FINDINGS.md`.
 
 - **Q2:** Cell-boundary navigation with arrow keys across row boundaries — "same x column" is approximate when columns have different widths. Word/Docs snap to the nearest character position; we should match. Acceptable — note the visual snap in the test plan.
 
@@ -236,3 +248,7 @@ Detailed steps live in the plan.
 - **Q7:** What happens during renderCurrentText if the user is actively typing and the table's structure changes (e.g., typed a pipe character `|` — now the row has an extra cell)? Edge case. Behavior: preserve caret at the post-insert source offset, let renderCurrentText produce a new `TableLayout` with revised `cellRanges`, caret lands wherever that source offset falls in the new layout. May feel jumpy; acceptable in V1.
 
 - **Q8:** Existing D8.1 manual test plan — does it still apply after D12 changes the trigger? **No — retire it** when D12 ships. The D12 test plan replaces it, but we keep `d08_1_manual_test_plan.md` as historical reference in `chronicle_by_concept/` per CLAUDE.md.
+
+- **Q9 (new, from spike):** `lineFragmentRangeForPoint` must return cell-scoped ranges, not row-scoped, for clicks to route to cell offsets instead of natural-CT-layout offsets. Noted in §3.4; implementation must honor this. If the override falls back to the default, NSTextView uses natural CT x to pick the offset — which is what we're trying to get away from.
+
+- **Q10 (new, from spike):** `enumerateCaretOffsetsInLineFragment` must yield caret offsets in strict left-to-right visual order. Non-monotonic enumeration confuses NSTextView's hit-test. For GFM tables this is naturally LTR (cells rendered left-to-right), but the implementation must be explicit about it.

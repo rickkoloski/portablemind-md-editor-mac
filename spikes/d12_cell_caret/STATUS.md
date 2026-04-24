@@ -41,9 +41,43 @@ Prioritized list CD and CC agreed to in the current session. Work down this list
 - [x] **Backspace** at cell start / **Delete** at cell end — PASS after `deleteBackward`/`deleteForward` overrides add boundary protection.
 - [~] **Tab / Shift+Tab** — implemented in the `keyDown` override; not yet exercised by CD.
 
-### Tier 3 — multi-row tables
+### Tier 3 — multi-row tables ✅ DONE
 
-- [ ] Add a **second row** to the source (`| c1a | c2a |\n| c1b | c2b |`). Verify each row gets its own `CellGridFragment`, cells route independently, **Up / Down arrow** crosses rows.
+Refactored the spike: `Row` struct + `parseRows` + `rowContaining` helpers; `CellDataSource` uses per-row cells keyed by `rowContaining(offset:)` with a **critical fix** — `lineFragmentRangeForPoint`'s `location` argument is the container anchor (offset 0), NOT the click's document position. Correct routing uses `tlm.textLayoutFragment(for: point)` to find the fragment actually hit by the click, then reads `rangeInElement.location` to identify the row.
+
+All 11 cross-row tests PASS via the harness:
+- Click row 2 cell 1 → caret in row 2 cell 1 ✓
+- Click row 2 cell 2 → caret in row 2 cell 2 ✓
+- Right arrow at row 1 c2 end → row 2 c1 start (skip pipes) ✓
+- Left arrow at row 2 c1 start → row 1 c2 end ✓
+- Tab at row 1 c2 → row 2 c1 start ✓
+- Shift+Tab at row 2 c1 → row 1 c2 end ✓
+- Delete-forward at row 1 c2 end → row 2 c1 start (non-destructive) ✓
+- Backspace at row 2 c1 start → row 1 c2 end (non-destructive) ✓
+- Typing in row 2 inserts at correct source offset, source updates correctly ✓
+- Down arrow from row 1 offset 5 → row 2 offset 29 (same caret x preserved) ✓
+- Each row gets its own `CellGridFragment` via the delegate ✓
+
+**Implication for production:** the architecture scales to multi-row. `textLayoutFragment(for: point)` is the canonical way to resolve clicks to the right row in a multi-row table. Up/Down arrow navigation preserves caret column across rows via NSTextView's natural behavior — our enumerate yields the same x for same in-cell position, so vertical navigation finds the correct target.
+
+---
+
+## Automation harness (meta-infrastructure)
+
+Added mid-session so CC can drive the spike without needing CD to click:
+
+- **Command file poller** in `CommandFilePoller` polls `/tmp/d12-command.json` every 200ms. Supported actions:
+  - `dump_state` → writes `/tmp/d12-state.json` (source, selection, parsed rows, tuning knobs, fragment rects)
+  - `snapshot` → writes a PNG of the window content (CC reads via `Read` tool)
+  - `window_info` → writes screen coords of window + content view
+  - `cell_screen_rects` → writes each cell's SCREEN rect (top-left origin), enabling `cliclick` to target cells precisely without coord math
+  - `reset_text` / `set_text` / `set_selection` → drive editor state
+
+- **`cliclick`** (installed via Homebrew) for synthetic mouse clicks. `osascript -e 'tell application "System Events" to key code N'` for key events (arrow, Tab, Delete, Backspace, etc.).
+
+- **Test loop from CC side:** write command JSON, read result JSON, optionally read snapshot PNG. Issue cliclick/osascript events. Repeat.
+
+- **Works unattended** after macOS Accessibility permission is granted to osascript / cliclick one time. No per-test human loop required.
 
 ### Tier 4 — editing edge cases
 
@@ -53,8 +87,8 @@ Prioritized list CD and CC agreed to in the current session. Work down this list
 
 ### Tier 5 — selection
 
-- [ ] **Drag-select within a cell** — highlight constrained to cell.
-- [ ] **Drag-select across cells** — per-cell highlights, not flat source highlight.
+- [~] **Drag-select within a cell** — CD observation (2026-04-24): drag selection **works logically** (subsequent operations like copy, typing-replaces behave as if there's a selection) but **no visual highlight is drawn**. Cause: NSTextView draws selection highlights via the default layout path; our custom `CellGridFragment.draw` doesn't consult or render the current text-selection's per-cell intersection. Production fix: in `draw(at:in:)`, query the layout manager's `textSelections` and paint per-cell highlight rects before drawing cell content. Spec §3.9 covers this; we already noted it needs implementation.
+- [ ] **Drag-select across cells** — per-cell highlights, not flat source highlight. Same fix as above but spanning row and across cells.
 
 ### Tier 6 — secondary trigger (double-click source mode)
 

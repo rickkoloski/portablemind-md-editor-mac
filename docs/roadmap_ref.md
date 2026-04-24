@@ -7,7 +7,7 @@
 
 Rough ordering of planned deliverables so that current work has context for what comes next. **Order and scope can change.** Anything on this list that isn't in `docs/current_work/specs/` hasn't been scoped yet.
 
-## Current ordering (as of 2026-04-22)
+## Current ordering (as of 2026-04-24)
 
 | D# | Deliverable | Status |
 |---|---|---|
@@ -18,7 +18,7 @@ Rough ordering of planned deliverables so that current work has context for what
 | D6 | Workspace foundation — folder tree sidebar, tabs, multi-file external-edit, CommandSurface + URL scheme + CLI wrapper | ✅ Complete — 2026-04-23 |
 | D3 | Packaging — Sparkle + DMG + Developer ID + notarization | **Deferred** — gates on Apple Developer Program renewal (per `memory/md_editor_apple_developer_state.md`) |
 | D8 | GFM table rendering — NSTextLayoutFragment grid | ✅ Complete — 2026-04-23 (grid rendering; D8.1 ships reveal-on-caret) |
-| D8.1 | Table reveal — source mode on caret-in-range | 📝 Triad drafted — 2026-04-23 |
+| D8.1 | Table reveal — source mode on caret-in-range | ✅ Complete — 2026-04-24 |
 | D9 | Scroll-to-line on open — CLI suffix `:42` + URL `&line=N&column=M` | ✅ Complete — 2026-04-23 |
 | D10 | Toggleable line numbers — View menu + `Cmd+Option+L` | ✅ Complete — 2026-04-23 |
 | D11 | CLI control of line numbers — `set-view` command + `--line-numbers=on\|off` flag (explicit-state discipline) | ✅ Complete — 2026-04-23 |
@@ -55,3 +55,4 @@ Items on the table but not yet ordered. Most will slot into D6+ or later.
 - **2026-04-22 (later)** — D2 complete. D3 deferred by CD preference ("packaging only when we hit a threshold of vision features, unless it creates technical risk"). D4 (mutation primitives + keyboard bindings) is next; triad drafted. Ordering is now D4 → D5 → D3 → D6+, with D numbers stable (never reused) per SDLC conventions.
 - **2026-04-22 (later still)** — D4 complete. 13 mutations working end-to-end via keyboard, uniform toggle semantics, code-block safety, one-step undo. Four findings surfaced during validation, three fixed in-deliverable (untitled buffer live-render, Strong-inside-Heading font, Shift-chord binding semantics); one UX-polish (`[text]()` empty parens) deferred. i18n caveat on keyboard shortcuts noted for later. D5 (formatting toolbar) is next.
 - **2026-04-22 (evening)** — D5 complete. Formatting toolbar live with 7 direct buttons + Heading dropdown (Body + H1-H6). View menu → Show/Hide Toolbar (Cmd+Opt+T) with UserDefaults persistence. Three findings resolved in-deliverable: (1) CommandMenu("View") creates duplicates — use CommandGroup(replacing: .toolbar); (2) .toolbar(.hidden, for: .windowToolbar) hides title bar too — use WindowAccessor + NSWindow.toolbar.isVisible; (3) UITest identifier queries on SwiftUI Button+Label return multiple nodes — use `.firstMatch`. Engineering-standards §2.1 refined with the required query shape. Vision Principle 1 (Word/Docs-familiar authoring) now realized at its core level. Roadmap proceeds to D6+ PortableMind integration or the deferred D3 packaging, CD's choice.
+- **2026-04-24** — D8.1 complete. GFM tables now reveal to pipe-source when the caret enters their range and return to grid when it leaves; whole-table granularity matches CodeBlock. Five findings captured: `invalidateLayout(for:)` alone doesn't re-fragment (need `.editedAttributes` on storage inside `beginEditing`/`endEditing`); grid rows need a min/max-line-height paragraph style for clicks to land (latent D8 bug fixed in-deliverable); paragraph style must be stripped on reveal and restored on un-reveal; renderCurrentText replaces `TableLayout` instances so a storage-scan fallback is needed to find a revealed table's range after edits; build-green does not prove click-ability — dogfood caught what the compiler couldn't. Structured single-cell editing filed as backlog on Harmoniq #53 per spec deferral. D7+ PortableMind integration remains the next major front.

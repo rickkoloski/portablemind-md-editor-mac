@@ -223,6 +223,160 @@ struct EditorContainer: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? LiveRenderTextView else { return }
             cursorTracker.updateVisibility(in: textView)
+            updateTableReveal(in: textView)
+        }
+
+        // MARK: - D8.1 table reveal
+
+        /// Tracks which table (if any) is currently in source-reveal
+        /// mode. When the caret crosses a table boundary, toggle the
+        /// delegate's `revealedTables` set and invalidate the affected
+        /// source ranges so TextKit 2 re-asks the delegate for
+        /// fragments (grid → default or default → grid).
+        private var revealedTableLayoutID: ObjectIdentifier?
+
+        private func updateTableReveal(in textView: LiveRenderTextView) {
+            guard let storage = textView.textStorage,
+                  let tlm = textView.textLayoutManager,
+                  let tcm = tlm.textContentManager,
+                  let delegate = tlm.delegate as? TableLayoutManagerDelegate
+            else { return }
+
+            let selection = textView.selectedRange()
+            let probeLocation = min(selection.location, max(0, storage.length - 1))
+            let newAttachment: TableRowAttachment? = {
+                guard storage.length > 0, probeLocation < storage.length else {
+                    return nil
+                }
+                return storage.attribute(TableAttributeKeys.rowAttachmentKey,
+                                         at: probeLocation,
+                                         effectiveRange: nil) as? TableRowAttachment
+            }()
+            let newLayoutID = newAttachment.map { ObjectIdentifier($0.layout) }
+            if newLayoutID == revealedTableLayoutID { return }
+
+            // Collect (range, desired-state) so we can strip or restore
+            // the grid-height paragraph style as part of the same edit
+            // transaction that forces TextKit 2 to re-fragment.
+            struct Target {
+                let range: NSRange
+                /// `true` if this table is now revealed (strip
+                /// paragraph style so source mode uses natural line
+                /// height); `false` if returning to grid (restore the
+                /// height paragraph style per row).
+                let revealed: Bool
+            }
+            var targets: [Target] = []
+            if let oldID = revealedTableLayoutID {
+                delegate.revealedTables.remove(oldID)
+                if let oldRange = findTableRange(for: oldID, in: storage) {
+                    targets.append(Target(range: oldRange, revealed: false))
+                }
+            }
+            if let newID = newLayoutID, let newAttachment {
+                delegate.revealedTables.insert(newID)
+                targets.append(Target(
+                    range: newAttachment.layout.tableRange,
+                    revealed: true))
+            }
+            revealedTableLayoutID = newLayoutID
+
+            // Force TextKit 2 to re-fragment. `invalidateLayout(for:)`
+            // alone keeps cached fragments and the delegate never gets
+            // re-called. Signaling `.editedAttributes` on the storage
+            // makes NSTextContentStorage tell the layout manager that
+            // attributes changed in the range, which drops cached
+            // fragments and re-invokes the delegate.
+            storage.beginEditing()
+            for target in targets {
+                let clamped = NSIntersectionRange(
+                    target.range,
+                    NSRange(location: 0, length: storage.length)
+                )
+                guard clamped.length > 0 else { continue }
+                adjustParagraphStyles(in: clamped,
+                                      revealed: target.revealed,
+                                      storage: storage)
+                storage.edited(.editedAttributes,
+                               range: clamped,
+                               changeInLength: 0)
+                if let textRange = textRange(for: clamped, in: tcm) {
+                    tlm.invalidateLayout(for: textRange)
+                }
+            }
+            storage.endEditing()
+            tlm.textViewportLayoutController.layoutViewport()
+            textView.needsDisplay = true
+        }
+
+        /// When revealing: strip `.paragraphStyle` from each row so
+        /// source mode uses natural line heights. When un-revealing:
+        /// restore a paragraph style whose line height matches the
+        /// row's grid height (same math the renderer used at initial
+        /// render).
+        private func adjustParagraphStyles(in tableRange: NSRange,
+                                           revealed: Bool,
+                                           storage: NSTextStorage) {
+            storage.enumerateAttribute(
+                TableAttributeKeys.rowAttachmentKey,
+                in: tableRange,
+                options: []
+            ) { value, range, _ in
+                guard let attachment = value as? TableRowAttachment else { return }
+                if revealed {
+                    storage.removeAttribute(.paragraphStyle, range: range)
+                } else {
+                    let height = paragraphHeight(for: attachment)
+                    let style = NSMutableParagraphStyle()
+                    style.minimumLineHeight = height
+                    style.maximumLineHeight = height
+                    storage.addAttribute(.paragraphStyle,
+                                         value: style,
+                                         range: range)
+                }
+            }
+        }
+
+        private func paragraphHeight(for attachment: TableRowAttachment) -> CGFloat {
+            switch attachment.kind {
+            case .separator:
+                return 3
+            case .header, .body:
+                guard let idx = attachment.cellContentIndex,
+                      idx < attachment.layout.rowHeight.count
+                else { return 20 }
+                return attachment.layout.rowHeight[idx]
+            }
+        }
+
+        /// Scan storage for any row tagged with a matching layout ID
+        /// so we can reconstruct the table's source range even after
+        /// a re-render replaced the previous `TableLayout` instance
+        /// with a new one.
+        private func findTableRange(for id: ObjectIdentifier,
+                                    in storage: NSTextStorage) -> NSRange? {
+            var found: NSRange?
+            storage.enumerateAttribute(
+                TableAttributeKeys.rowAttachmentKey,
+                in: NSRange(location: 0, length: storage.length),
+                options: []
+            ) { value, _, stop in
+                if let attachment = value as? TableRowAttachment,
+                   ObjectIdentifier(attachment.layout) == id {
+                    found = attachment.layout.tableRange
+                    stop.pointee = true
+                }
+            }
+            return found
+        }
+
+        private func textRange(for nsRange: NSRange,
+                               in tcm: NSTextContentManager) -> NSTextRange? {
+            guard let start = tcm.location(tcm.documentRange.location,
+                                           offsetBy: nsRange.location),
+                  let end = tcm.location(start, offsetBy: nsRange.length)
+            else { return nil }
+            return NSTextRange(location: start, end: end)
         }
 
         // MARK: - Rendering

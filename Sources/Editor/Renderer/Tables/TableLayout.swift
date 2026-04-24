@@ -62,14 +62,21 @@ final class TableLayout {
     /// `rowHeight[rowIndex]` = max cell height for that row + insets.
     let rowHeight: [CGFloat]
 
+    /// The full source-range of the table this layout represents.
+    /// Used by `EditorContainer.Coordinator` to invalidate TextKit 2
+    /// layout when toggling grid ↔ source reveal state (D8.1).
+    let tableRange: NSRange
+
     init(columnCount: Int,
          contentWidths: [CGFloat],
          alignments: [Markdown.Table.ColumnAlignment?],
-         cellContentPerRow: [[NSAttributedString]]) {
+         cellContentPerRow: [[NSAttributedString]],
+         tableRange: NSRange) {
         self.columnCount = columnCount
         self.contentWidths = contentWidths
         self.alignments = alignments
         self.cellContentPerRow = cellContentPerRow
+        self.tableRange = tableRange
 
         var leadings: [CGFloat] = []
         var trailings: [CGFloat] = []

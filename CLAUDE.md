@@ -51,6 +51,7 @@ Active deliverables live in `docs/current_work/`:
 | `specs/` | What to build — `dNN_name_spec.md` |
 | `planning/` | How to build it — `dNN_name_plan.md` |
 | `prompts/` | CC instructions — `dNN_name_prompt.md` |
+| `testing/` | Manual test plans per deliverable — `dNN_name_manual_test_plan.md`. First-class SDLC artifact; graduates to XCUITest while the manual plan stays. |
 | `stepwise_results/` | Completion records — `dNN_name_COMPLETE.md` |
 | `issues/` | Blocked items — `dNN_name_BLOCKED.md` |
 

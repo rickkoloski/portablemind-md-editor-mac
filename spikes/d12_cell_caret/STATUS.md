@@ -191,71 +191,70 @@ All downstream geometry — cell draw rects, cell content text x, caret x per of
 
 ## How to resume this session
 
-1. **Rebuild + launch:**
+### Quick start
+
+1. **Build + launch the spike:**
    ```bash
    cd ~/src/apps/md-editor-mac/spikes/d12_cell_caret
    ./run.sh
    ```
-   The window opens at screen position (100, 100) — bottom-left of primary display. Logs at `/tmp/d12-spike.log`.
+   Window opens at screen (100, 100). App logs → `/tmp/d12-spike.log`.
 
-2. **To tail logs while interacting:**
+2. **Tail the log** while testing (optional; the spike's in-window log pane is the primary view):
    ```bash
    tail -f /tmp/d12-spike.log
    ```
 
-3. **Resume prompt:** hand CC the following:
-   ```
-   Continue the D12 cell-caret spike. Read
-   spikes/d12_cell_caret/STATUS.md — pick up at the next unchecked
-   Tier item. Iterate on the spike only; do not touch production
-   Sources/ yet. Record findings in STATUS.md under "Findings by tier"
-   as you work.
-   ```
+### CC-driven automation (new)
 
-   Or paste this path:
-   ```
-   /Users/richardkoloski/src/apps/md-editor-mac/spikes/d12_cell_caret/STATUS.md
-   ```
+The spike is now fully remotable. CC writes JSON to `/tmp/d12-command.json`; the spike polls every 200ms and responds.
+
+- **State dump:** `echo '{"action":"dump_state"}' > /tmp/d12-command.json` → reads `/tmp/d12-state.json`.
+- **Snapshot:** `echo '{"action":"snapshot"}' > /tmp/d12-command.json` → reads `/tmp/d12-shot.png`.
+- **Cell screen rects** (for cliclick targeting): `echo '{"action":"cell_screen_rects"}' > /tmp/d12-command.json` → reads `/tmp/d12-cells.json`.
+- **Window info** (screen coords): `{"action":"window_info"}`.
+- **State manipulation:** `{"action":"set_selection","location":N}`, `{"action":"reset_text"}`, `{"action":"set_text","text":"..."}`.
+
+Synthetic input:
+- Clicks: `cliclick c:<x>,<y>` (screen coords, top-left origin).
+- Typing: `cliclick t:<chars>`.
+- Arrow keys / modifier combos: `osascript -e 'tell application "System Events" to key code <N>'` (e.g., 123 left, 124 right, 125 down, 126 up, 48 tab, 51 backspace, 117 delete).
+
+**macOS Accessibility permission:** granted once in System Settings → Privacy & Security → Accessibility for osascript + cliclick. Persists; no per-session re-grant.
+
+### Resume prompt
+
+Pass CC this path to pick up:
+
+```
+/Users/richardkoloski/src/apps/md-editor-mac/spikes/d12_cell_caret/STATUS.md
+```
+
+Or hand CC the following inline:
+
+> Continue the D12 cell-caret spike. Read `spikes/d12_cell_caret/STATUS.md`. Tier 1, 2, 3 are complete; the automation harness is live. Pick up at Tier 4 (editing edge cases: typing past cell width, literal pipe, empty cells). Drive everything via the harness — don't ask CD for click tests. Record findings under "Findings by tier" as you work. Do not touch production `Sources/` yet — spike iteration only.
 
 ---
 
-## State of git / repo
+## State of git / repo (end of 2026-04-24)
 
-- Spike code + FINDINGS.md committed in `0be84bd` (earlier today).
-- Spike v2 refinements (custom fragment + refined parser + cells-flush-to-top) **uncommitted as of this status write**. Commit queued — see next section.
-- `D12Spike.app/` bundle generated on disk by `run.sh` — gitignored via `.gitignore` entry added this session (`spikes/**/*.app/`).
-- `/tmp/d12-spike.log` is ephemeral; not in repo.
+All spike work is committed on `main`:
 
----
+| Commit | Summary |
+|---|---|
+| `0be84bd` | D12 triad (spec + plan + prompt) drafted |
+| `45d7dc3` | Phase 1 spike GREEN (caret-x validated via NSTextSelectionDataSource) |
+| `917ec1c` | Spike v2: full round-trip (click → caret → edit in cell) |
+| `2b878b7` | Caret visual alignment + tuning knob UX |
+| `3223439` | Tier 3 multi-row GREEN + CC-driven automation harness |
 
-## Commit queue (on resume, commit first)
+Tier progress:
 
-Files to add + describe:
-- `spikes/d12_cell_caret/Sources/D12Spike/main.swift` — spike v2: custom fragment + delegate + data source round trip.
-- `spikes/d12_cell_caret/run.sh` — build + `.app`-wrap + launch helper.
-- `spikes/d12_cell_caret/STATUS.md` — this file.
-- `.gitignore` — `spikes/**/*.app/` entry.
+- Tier 1 — click routing ✅
+- Tier 2 — keyboard navigation ✅ (Tab technically implemented + spot-tested autonomously)
+- Tier 3 — multi-row tables ✅ (11 behaviors validated via harness)
+- Tier 4 — editing edge cases ⬜ (runnable autonomously by CC)
+- Tier 5 — selection highlights ⬜ (known: logical works, visual doesn't; fix scoped)
+- Tier 6 — double-click → source mode ⬜
 
-Commit message draft:
-```
-D12 spike v2: full round-trip validated (click → caret → edit in cell)
-
-Extends the Phase 1 spike from just caret-x validation to a full
-round-trip reproducer: custom NSTextLayoutFragment draws two cells,
-custom NSTextSelectionDataSource routes clicks and caret offsets to
-cell bounds, typing inserts at source offsets and the cell re-renders
-from storage. CD verified end-to-end: click cell 1 → caret inside
-cell 1 → type 'x' → "cell one" becomes "cellx one" → caret advances
-inside cell 1.
-
-Spec and plan already reflect the NSTextSelectionDataSource design
-(committed in 45d7dc3); this commit captures the iteration that
-proved the full round trip, not just caret-x.
-
-Adds run.sh (build + .app-wrap + launch) because raw swift-run
-doesn't activate windows reliably on macOS 15. STATUS.md tracks
-the remaining test tiers CD asked to cover in isolation before
-merging to production.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-```
+Harness + tuning infrastructure is production-grade for the spike's purposes. Tuning knobs (`cellYOffset=-7.5`, `caretXOffset=13`) baked in as spike defaults; production must replace with font-metric-derived formulas.

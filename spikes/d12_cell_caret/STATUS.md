@@ -29,17 +29,17 @@ Spike is at `spikes/d12_cell_caret/`. Run via `./run.sh` (builds, wraps as `.app
 
 Prioritized list CD and CC agreed to in the current session. Work down this list inside the spike, capturing findings against each tier in this file's "Findings by tier" section below.
 
-### Tier 1 — click routing in all regions
+### Tier 1 — click routing in all regions ✅ DONE
 
-- [ ] Click **cell 2** — verify it routes to cell 2, not cell 1.
-- [ ] Click the **padding zone between cells** — should snap caret to the nearest cell edge.
-- [ ] Click **outside both cells** (left margin, right margin, below cells) — snap to nearest cell edge.
+- [x] Click **cell 2** — PASS
+- [x] Click the **padding zone between cells** — PASS (snaps to cell 2 start)
+- [x] Click **outside both cells** — FIXED mid-session by removing TLM fallback; all out-of-cell clicks now route by x-midpoint.
 
-### Tier 2 — keyboard navigation
+### Tier 2 — keyboard navigation ✅ DONE (Tab untested but implemented)
 
-- [ ] **Left / Right arrow** at cell boundaries — should cross cells; pipe chars not directly visitable.
-- [ ] **Backspace** at cell start / **Delete** at cell end — cross cells cleanly, don't delete pipes.
-- [ ] **Tab / Shift+Tab** — cell-to-cell navigation (needs explicit key binding).
+- [x] **Left / Right arrow** at cell boundaries — PASS after `keyDown` override adds cell-skip.
+- [x] **Backspace** at cell start / **Delete** at cell end — PASS after `deleteBackward`/`deleteForward` overrides add boundary protection.
+- [~] **Tab / Shift+Tab** — implemented in the `keyDown` override; not yet exercised by CD.
 
 ### Tier 3 — multi-row tables
 
@@ -66,7 +66,43 @@ Prioritized list CD and CC agreed to in the current session. Work down this list
 
 Append as you work through. Each finding: tier/case ID, expected, observed, implication for production.
 
-*(empty — new tiers will land here as we work through them)*
+### Tier 1 — click routing
+
+- **1a** — click inside cell 2: PASS. Caret lands inside cell 2 at the clicked x; typing lands in cell 2.
+- **1b** — click between cells (in the white gap): PASS. Snaps to the first position in cell 2. Alternate-acceptable: snapping to end of cell 1. Current implementation (post-fix): `lineFragmentRangeForPoint` always routes by x-midpoint between cells, so click in gap closer to cell 2 left edge → cell 2 (correct).
+- **1c** — click outside both cells (any click past the cell rects): initially snapped to first position in cell 1 regardless of x. **FIXED** by removing the fallback path in `lineFragmentRangeForPoint` and always routing by x-midpoint: click x < midpoint → cell 1; x ≥ midpoint → cell 2. Far-right click now snaps to cell 2 end (via the caret-offset enumeration), far-left click snaps to cell 1 start.
+
+**Implication for production:** `lineFragmentRangeForPoint` must be the sole click-routing path for table rows — never fall back to the TLM default for clicks in the row's y-band, because the default picks offsets via natural CT layout of the source text (pipes + whitespace), which is not what the user sees. Always return a cell-scoped `NSTextRange` computed from grid geometry.
+
+### Tier 2 — keyboard navigation
+
+- **2.4 Right arrow** within a cell and across boundaries: WORKS (per CD: "right arrow progresses one character at a time to end of text, then skips to end of first cell, then skips to next cell"). Right arrow advances source offset one per press. Between cells, offsets map to the cell's right-edge x (offsets 10, 11, 12 between cell 1 and cell 2 all yield x=332 — so two presses appear to "stuck" visually at the cell 1 right edge before the caret jumps into cell 2). CD accepts current behavior as "good" for the spike.
+
+  **Implication for production:** consider overriding `NSTextSelectionNavigation.destinationSelectionForTextSelection(...)` so horizontal arrow at cell-content-end jumps directly to the next cell's start, skipping the pipe-character source offsets. Not required for correctness, but cleaner UX (one key press, one visual move).
+
+- **Caret x accuracy** ("roughly correct, not perfect"): initial `perCharStride = 12pt` was an approximation. Changed to dynamic: `perCharStride = measure "M" in 18pt monospaced font`. Should tighten caret-to-character alignment in subsequent tests. (Will note in a follow-up finding after re-observation.)
+
+- **2.5 Backspace at cell-2 start**: raw `deleteBackward` chews pipes. Observed sequence:
+  - Source: `| cell one | cell two |\n` (24 chars, 2 cells)
+  - Caret at offset 13 (start of "cell two"), backspace:
+    - Press 1: deletes space at offset 12 → `| cell one |cell two |\n` (23 chars, still 2 cells)
+    - Press 2: deletes pipe at offset 11 → `| cell one cell two |\n` (22 chars, **1 cell**). Cell 1 renders "cell one cell two"; cell 2 fragment still draws but empty.
+
+  **Fix in spike (Word/Docs-like behavior):** `LoggingTextView.deleteBackward` override. If caret is at cell-2 start, jump to cell-1 end without deleting. If caret is at cell-1 start, jump to line start. Symmetric `deleteForward` override: caret at cell-1 end → jump to cell-2 start; caret at cell-2 end → jump to line end.
+
+  **Implication for production:** the `NSTextView.deleteBackward` / `deleteForward` override surface is sufficient for cell-boundary protection. Alternative: override `NSTextSelectionNavigation.deletionRangesForTextSelection(...)` for a more principled answer. Production choice: probably the NSTextView overrides (simpler, localized to table-editing contexts).
+
+  **Verified by CD 2026-04-24:** backspace at cell-2 start jumps to cell-1 end non-destructively; additional backspaces from there delete normally within cell 1. Symmetric delete-forward at cell-1 end works. "All the way around in both directions."
+
+- **2.4 Arrow nav across cell boundaries** (re-tested after override): **PASS** all four corners.
+  - Right arrow at cell-1 content-end → jumps directly to cell-2 content-start (one press, no pause).
+  - Left arrow at cell-2 content-start → jumps directly to cell-1 content-end.
+  - Right arrow at cell-2 content-end → ignored (hard right boundary).
+  - Left arrow at cell-1 content-start → ignored (hard left boundary).
+
+  **Implication for production:** a `keyDown` override on the editor NSTextView subclass, gated on `selection.length == 0` and a detected table-row context, is sufficient for cell-boundary arrow navigation. Alternative: `NSTextSelectionNavigation.destinationSelectionForTextSelection(...)` override, which is more principled but needs a full subclass.
+
+- **2.6 Tab / Shift+Tab**: implemented in the same `keyDown` override but **untested by CD** in this session. Behavior: Tab in cell 1 → cell 2 start; Tab in cell 2 → cell 2 end. Shift+Tab in cell 2 → cell 1 end; Shift+Tab in cell 1 → cell 1 start. Should exercise in a later test pass.
 
 ---
 

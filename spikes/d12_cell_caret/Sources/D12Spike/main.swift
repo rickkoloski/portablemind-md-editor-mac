@@ -33,7 +33,11 @@ let cell1X: CGFloat = 20
 let cell2X: CGFloat = 360
 let cellWidth: CGFloat = 320
 let cellContentFontSize: CGFloat = 18
-let perCharStride: CGFloat = 12   // used for caret x mapping inside a cell
+/// Exact char width of the cell-content font, measured once.
+let perCharStride: CGFloat = {
+    let font = NSFont.monospacedSystemFont(ofSize: cellContentFontSize, weight: .regular)
+    return ("M" as NSString).size(withAttributes: [.font: font]).width
+}()
 
 // Cell visual rects (in fragment-local coordinates, flipped y).
 var cell1Rect: CGRect {
@@ -110,11 +114,14 @@ final class CellGridFragment: NSTextLayoutFragment {
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
-        NSLog("[FRAG] draw called at point=(%.1f, %.1f)", point.x, point.y)
+        logLine("FRAG", "draw at (\(point.x), \(point.y)) layoutFragmentFrame=\(NSStringFromRect(layoutFragmentFrame)) renderingSurfaceBounds=\(NSStringFromRect(renderingSurfaceBounds)) lineFragments=\(textLineFragments.count)")
+        for (i, lf) in textLineFragments.enumerated() {
+            logLine("FRAG", "  line[\(i)] typoBounds=\(NSStringFromRect(lf.typographicBounds)) glyphOrigin=(\(lf.glyphOrigin.x), \(lf.glyphOrigin.y))")
+        }
 
         // Source for this row.
         guard let paragraph = textElement as? NSTextParagraph else {
-            NSLog("[FRAG]   element is not NSTextParagraph")
+            logLine("FRAG", "  element is not NSTextParagraph")
             return
         }
         let source = paragraph.attributedString.string
@@ -178,10 +185,9 @@ final class GridDelegate: NSObject, NSTextLayoutManagerDelegate {
         textLayoutFragmentFor location: any NSTextLocation,
         in textElement: NSTextElement
     ) -> NSTextLayoutFragment {
-        NSLog("[DELEGATE] textLayoutFragmentFor called, element=%@",
-              String(describing: type(of: textElement)))
+        logLine("DELEGATE", "textLayoutFragmentFor element=\(type(of: textElement))")
         if textElement is NSTextParagraph {
-            NSLog("[DELEGATE]   → returning CellGridFragment")
+            logLine("DELEGATE", "  → returning CellGridFragment")
             return CellGridFragment(textElement: textElement,
                                     range: textElement.elementRange)
         }
@@ -280,7 +286,7 @@ final class CellDataSource: NSObject, NSTextSelectionDataSource {
         let total = (source as NSString).length
 
         let ranges = parseCellRanges(in: source)
-        NSLog("[CELL-DS] enumerate (total=%d, cells=%d)", total, ranges.count)
+        logLine("CELL-DS", "enumerate (total=\(total), cells=\(ranges.count))")
 
         // Guard: if we don't have two cells, fall back to the TLM default.
         // This avoids trapping on invalid Swift ranges and keeps the spike
@@ -324,15 +330,14 @@ final class CellDataSource: NSObject, NSTextSelectionDataSource {
         let c2 = ranges[1]
 
         let docStart = tlm.documentRange.location
-        let targetRange: NSRange
-        if cell1Rect.contains(point) {
-            targetRange = c1
-        } else if cell2Rect.contains(point) {
-            targetRange = c2
-        } else {
-            // Outside any cell — fall back.
-            return tlm.lineFragmentRange(for: point, inContainerAt: location)
-        }
+
+        // Tier 1c fix: ANY click in the row's horizontal space snaps to a
+        // cell range by x-position. No fallback to natural CT layout.
+        //   x < midpoint between cells → cell 1
+        //   x ≥ midpoint between cells → cell 2
+        let midX = (cell1Rect.maxX + cell2Rect.minX) / 2
+        let targetRange: NSRange = (point.x < midX) ? c1 : c2
+        logLine("CELL-DS", "lfr for (\(point.x), \(point.y)) midX=\(midX) → \(NSEqualRanges(targetRange, c1) ? "cell 1" : "cell 2")")
 
         guard let start = tlm.location(docStart, offsetBy: targetRange.location),
               let end = tlm.location(start, offsetBy: targetRange.length)
@@ -342,25 +347,268 @@ final class CellDataSource: NSObject, NSTextSelectionDataSource {
     }
 }
 
+// MARK: - In-window log panel
+
+/// Singleton that collects log lines. Renders into an NSTextView
+/// mounted in the bottom pane of the spike window, and also mirrors
+/// to NSLog / stderr for the /tmp/d12-spike.log file.
+final class InWindowLog {
+    static let shared = InWindowLog()
+    weak var textView: NSTextView?
+    private let maxChars = 50_000
+
+    func log(_ tag: String, _ msg: String) {
+        let timestamp = Self.fmt.string(from: Date())
+        let line = "\(timestamp) [\(tag)] \(msg)\n"
+        NSLog("[\(tag)] %@", msg)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tv = self.textView, let storage = tv.textStorage else { return }
+            storage.append(NSAttributedString(string: line, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+                .foregroundColor: NSColor.black
+            ]))
+            if storage.length > self.maxChars {
+                storage.deleteCharacters(in: NSRange(
+                    location: 0, length: storage.length - self.maxChars))
+            }
+            tv.scrollToEndOfDocument(nil)
+        }
+    }
+
+    func allText() -> String {
+        textView?.textStorage?.string ?? ""
+    }
+
+    private static let fmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+}
+
+/// Short alias
+func logLine(_ tag: String, _ msg: String) {
+    InWindowLog.shared.log(tag, msg)
+}
+
+/// NSTextView subclass that logs where the caret is drawn and
+/// protects cell boundaries against destructive operations.
+final class LoggingTextView: NSTextView {
+    override init(frame frameRect: NSRect, textContainer: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: textContainer)
+    }
+    required init?(coder: NSCoder) { super.init(coder: coder) }
+
+    override func drawInsertionPoint(in rect: NSRect,
+                                     color: NSColor,
+                                     turnedOn flag: Bool) {
+        logLine("CARET", "drawInsertionPoint rect=\(NSStringFromRect(rect)) on=\(flag) flipped=\(self.isFlipped)")
+        super.drawInsertionPoint(in: rect, color: color, turnedOn: flag)
+    }
+
+    /// Tier 2.5 — backspace at a cell-start moves caret to the previous
+    /// cell's end instead of deleting the pipe. Caret crosses the
+    /// boundary non-destructively. Matches Word/Docs table cell behavior.
+    override func deleteBackward(_ sender: Any?) {
+        let sel = selectedRange()
+        if sel.length == 0, let storage = textStorage {
+            let source = storage.string
+            let ranges = parseCellRanges(in: source)
+            // Caret at start of cell 2 → jump to end of cell 1.
+            if ranges.count >= 2, sel.location == ranges[1].location {
+                let prevEnd = ranges[0].location + ranges[0].length
+                logLine("UI", "backspace at cell-2 start → jump to cell-1 end (offset \(prevEnd))")
+                setSelectedRange(NSRange(location: prevEnd, length: 0))
+                return
+            }
+            // Caret at start of cell 1 → jump to line start.
+            if ranges.count >= 1, sel.location == ranges[0].location {
+                logLine("UI", "backspace at cell-1 start → jump to line start (offset 0)")
+                setSelectedRange(NSRange(location: 0, length: 0))
+                return
+            }
+        }
+        super.deleteBackward(sender)
+    }
+
+    /// Tier 2.4 — right arrow at cell-content-end jumps directly to next
+    /// cell's content-start, skipping the inter-cell pipe source offsets.
+    /// Left arrow at cell-content-start jumps to previous cell's
+    /// content-end. Matches Word/Docs cell navigation.
+    ///
+    /// Tier 2.6 — Tab / Shift+Tab cycle between cells.
+    override func keyDown(with event: NSEvent) {
+        let sel = selectedRange()
+        guard sel.length == 0, let storage = textStorage else {
+            super.keyDown(with: event)
+            return
+        }
+        let source = storage.string
+        let ranges = parseCellRanges(in: source)
+        guard ranges.count >= 2 else {
+            super.keyDown(with: event)
+            return
+        }
+        let c1 = ranges[0]
+        let c2 = ranges[1]
+        let c1End = c1.location + c1.length
+        let c2End = c2.location + c2.length
+        let loc = sel.location
+
+        // Key codes
+        let KEY_TAB: UInt16 = 48
+        let KEY_LEFT: UInt16 = 123
+        let KEY_RIGHT: UInt16 = 124
+
+        switch event.keyCode {
+        case KEY_TAB:
+            let shift = event.modifierFlags.contains(.shift)
+            let inCell1 = loc >= c1.location && loc <= c1End
+            let inCell2 = loc >= c2.location && loc <= c2End
+            let target: Int
+            if shift {
+                // Shift+Tab → previous cell's end (or this cell's start if no prev).
+                if inCell2 {
+                    target = c1End
+                } else {
+                    target = c1.location  // already in c1 → go to c1 start
+                }
+            } else {
+                // Tab → next cell's start (or this cell's end if no next).
+                if inCell1 {
+                    target = c2.location
+                } else {
+                    target = c2End  // already in c2 → go to c2 end
+                }
+            }
+            logLine("UI", "Tab (shift=\(shift)) loc=\(loc) → \(target)")
+            setSelectedRange(NSRange(location: target, length: 0))
+            return
+
+        case KEY_RIGHT:
+            // At cell-1 content-end → jump to cell-2 content-start.
+            if loc == c1End {
+                logLine("UI", "→ at cell-1 end → jump to cell-2 start (\(c2.location))")
+                setSelectedRange(NSRange(location: c2.location, length: 0))
+                return
+            }
+            // At cell-2 content-end → stop (don't advance into the trailing
+            // pipe/newline region; Word/Docs behavior).
+            if loc == c2End {
+                logLine("UI", "→ at cell-2 end → ignore (boundary)")
+                return
+            }
+            super.keyDown(with: event)
+            return
+
+        case KEY_LEFT:
+            // At cell-2 content-start → jump to cell-1 content-end.
+            if loc == c2.location {
+                logLine("UI", "← at cell-2 start → jump to cell-1 end (\(c1End))")
+                setSelectedRange(NSRange(location: c1End, length: 0))
+                return
+            }
+            // At cell-1 content-start → stop at boundary.
+            if loc == c1.location {
+                logLine("UI", "← at cell-1 start → ignore (boundary)")
+                return
+            }
+            super.keyDown(with: event)
+            return
+
+        default:
+            super.keyDown(with: event)
+        }
+    }
+
+    /// Symmetrically — Delete at cell-end jumps to the next cell's start.
+    override func deleteForward(_ sender: Any?) {
+        let sel = selectedRange()
+        if sel.length == 0, let storage = textStorage {
+            let source = storage.string
+            let ranges = parseCellRanges(in: source)
+            // Caret at end of cell 1 → jump to start of cell 2.
+            if ranges.count >= 2,
+               sel.location == ranges[0].location + ranges[0].length {
+                logLine("UI", "delete at cell-1 end → jump to cell-2 start (offset \(ranges[1].location))")
+                setSelectedRange(NSRange(location: ranges[1].location, length: 0))
+                return
+            }
+            // Caret at end of cell 2 → jump to line end.
+            if ranges.count >= 2,
+               sel.location == ranges[1].location + ranges[1].length {
+                let lineEnd = (source as NSString).length - 1  // before \n
+                logLine("UI", "delete at cell-2 end → jump to line end (offset \(lineEnd))")
+                setSelectedRange(NSRange(location: max(sel.location, lineEnd), length: 0))
+                return
+            }
+        }
+        super.deleteForward(sender)
+    }
+}
+
 // MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     var window: NSWindow!
     var textView: NSTextView!
+    var logTextView: NSTextView!
     var dataSource: CellDataSource!
     var gridDelegate: GridDelegate!
 
+    @objc func copyLogsToClipboard(_ sender: Any?) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(InWindowLog.shared.allText(), forType: .string)
+        logLine("UI", "logs copied to clipboard (\(InWindowLog.shared.allText().count) chars)")
+    }
+
+    @objc func clearLogs(_ sender: Any?) {
+        logTextView?.textStorage?.mutableString.setString("")
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let windowSize = NSSize(width: 900, height: 600)
         window = NSWindow(
-            contentRect: NSRect(x: 100, y: 100, width: 900, height: 250),
+            contentRect: NSRect(origin: .zero, size: windowSize),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered, defer: false)
-        window.title = "D12 Cell Caret Spike v2 — round trip"
+        window.title = "D12 Cell Caret Spike v2 — round trip + log pane"
         window.backgroundColor = NSColor.white
 
-        textView = NSTextView(usingTextLayoutManager: true)
-        textView.frame = window.contentView!.bounds
-        textView.autoresizingMask = [.width, .height]
+        let content = window.contentView!
+
+        // --- Top pane: editor (inside a scroll view)
+        let editorContainerHeight: CGFloat = 220
+        let editorRect = NSRect(
+            x: 0,
+            y: windowSize.height - editorContainerHeight,
+            width: windowSize.width,
+            height: editorContainerHeight)
+
+        let editorScroll = NSScrollView(frame: editorRect)
+        editorScroll.autoresizingMask = [.width, .minYMargin]
+        editorScroll.hasVerticalScroller = true
+        editorScroll.borderType = .bezelBorder
+        editorScroll.drawsBackground = false
+
+        let editorContainer = NSTextContainer(size: CGSize(
+            width: editorScroll.contentSize.width,
+            height: CGFloat.greatestFiniteMagnitude))
+        editorContainer.widthTracksTextView = true
+        let editorContentStorage = NSTextContentStorage()
+        let editorTLM = NSTextLayoutManager()
+        editorContentStorage.addTextLayoutManager(editorTLM)
+        editorTLM.textContainer = editorContainer
+
+        textView = LoggingTextView(frame: editorScroll.contentView.bounds,
+                                   textContainer: editorContainer)
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: 0, height: editorRect.height)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                  height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
         textView.drawsBackground = true
         textView.backgroundColor = NSColor.white
         textView.textColor = NSColor.black
@@ -368,48 +616,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         textView.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
         textView.isEditable = true
         textView.isSelectable = true
-        textView.textContainerInset = NSSize(width: 10, height: 30)
-
+        textView.textContainerInset = NSSize(width: 10, height: 10)
         textView.delegate = self
 
-        // Install delegate + data source BEFORE setting the string, so the
-        // initial layout runs through our custom fragment path. Production's
-        // EditorContainer.swift does this in the same order (tlm.delegate
-        // set, then textView.string = ...).
+        // Install delegate + data source BEFORE setting the string.
         if let tlm = textView.textLayoutManager {
             gridDelegate = GridDelegate()
             tlm.delegate = gridDelegate
-
             if let storage = textView.textContentStorage
                 ?? tlm.textContentManager as? NSTextContentStorage {
                 dataSource = CellDataSource(tlm: tlm, storage: storage)
                 tlm.textSelectionNavigation =
                     NSTextSelectionNavigation(dataSource: dataSource)
-                NSLog("[SPIKE] installed grid delegate + data source")
+                logLine("SPIKE", "installed grid delegate + data source")
             } else {
-                NSLog("[SPIKE] ERROR: could not get text content storage")
+                logLine("SPIKE", "ERROR: could not get text content storage")
             }
         } else {
-            NSLog("[SPIKE] ERROR: no textLayoutManager")
+            logLine("SPIKE", "ERROR: no textLayoutManager")
         }
 
         textView.string = initialSourceText
+        editorScroll.documentView = textView
+        content.addSubview(editorScroll)
 
-        window.contentView?.addSubview(textView)
-        // Hardcoded small-corner position so the window cannot land off
-        // any screen in a multi-display setup. (100, 100) in screen coords
-        // is near the bottom-left of the primary display.
+        // --- Bottom pane: toolbar + log
+        let toolbarHeight: CGFloat = 28
+        let toolbarRect = NSRect(
+            x: 0,
+            y: windowSize.height - editorContainerHeight - toolbarHeight,
+            width: windowSize.width,
+            height: toolbarHeight)
+        let toolbar = NSView(frame: toolbarRect)
+        toolbar.autoresizingMask = [.width, .minYMargin]
+
+        let copyBtn = NSButton(frame: NSRect(x: 8, y: 2, width: 120, height: 24))
+        copyBtn.title = "Copy logs"
+        copyBtn.bezelStyle = .rounded
+        copyBtn.target = self
+        copyBtn.action = #selector(copyLogsToClipboard(_:))
+        toolbar.addSubview(copyBtn)
+
+        let clearBtn = NSButton(frame: NSRect(x: 136, y: 2, width: 100, height: 24))
+        clearBtn.title = "Clear"
+        clearBtn.bezelStyle = .rounded
+        clearBtn.target = self
+        clearBtn.action = #selector(clearLogs(_:))
+        toolbar.addSubview(clearBtn)
+
+        content.addSubview(toolbar)
+
+        // --- Log pane (bottom area)
+        let logRect = NSRect(
+            x: 0, y: 0,
+            width: windowSize.width,
+            height: windowSize.height - editorContainerHeight - toolbarHeight)
+        let logScroll = NSScrollView(frame: logRect)
+        logScroll.autoresizingMask = [.width, .height]
+        logScroll.hasVerticalScroller = true
+        logScroll.borderType = .bezelBorder
+
+        logTextView = NSTextView(frame: logScroll.contentView.bounds)
+        logTextView.autoresizingMask = .width
+        logTextView.minSize = NSSize(width: 0, height: logRect.height)
+        logTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                     height: CGFloat.greatestFiniteMagnitude)
+        logTextView.isVerticallyResizable = true
+        logTextView.isEditable = false
+        logTextView.isSelectable = true
+        logTextView.drawsBackground = true
+        logTextView.backgroundColor = NSColor.white
+        logTextView.textColor = NSColor.black
+        logTextView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        logTextView.textContainerInset = NSSize(width: 6, height: 4)
+
+        logScroll.documentView = logTextView
+        content.addSubview(logScroll)
+
+        InWindowLog.shared.textView = logTextView
+
         window.setFrameOrigin(NSPoint(x: 100, y: 100))
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
         window.level = .floating
         window.makeFirstResponder(textView)
-        NSLog("[SPIKE] window frame=%@, visible=%@, onActiveSpace=%@",
-              NSStringFromRect(window.frame),
-              window.isVisible ? "YES" : "NO",
-              window.isOnActiveSpace ? "YES" : "NO")
+        logLine("SPIKE", "window frame=\(NSStringFromRect(window.frame)) visible=\(window.isVisible)")
 
-        // Ensure layout after window is on screen.
         if let tlm = textView.textLayoutManager,
            let tcm = tlm.textContentManager {
             tlm.ensureLayout(for: tcm.documentRange)
@@ -421,35 +713,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
             if let w = event.window, w === self.window {
                 let p = self.textView.convert(event.locationInWindow, from: nil)
-                NSLog("[EVENT] mouseDown at (%.1f, %.1f) clickCount=%d",
-                      p.x, p.y, event.clickCount)
+                logLine("EVENT", "mouseDown (text-view \(String(format: "%.1f", p.x)),\(String(format: "%.1f", p.y))) clickCount=\(event.clickCount)")
             }
             return event
         }
         NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
-            NSLog("[EVENT] keyDown chars='%@'", event.characters ?? "")
+            // Ignore keys routed to the log pane (they'd be Cmd+C etc. against
+            // selected log text). We only care about keys to the editor.
+            if let first = NSApp.keyWindow?.firstResponder,
+               first === self.textView {
+                logLine("EVENT", "keyDown '\(event.characters ?? "")' keyCode=\(event.keyCode)")
+            }
             return event
         }
 
-        NSLog("[SPIKE] ready — click inside a cell, observe caret + type")
+        logLine("SPIKE", "ready — click cells, observe caret + type; use 'Copy logs' to share output")
+        logLine("SPIKE", "perCharStride=\(perCharStride)")
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
-        guard let tv = notification.object as? NSTextView else { return }
+        guard let tv = notification.object as? NSTextView, tv === textView else { return }
         let sel = tv.selectedRange()
-        NSLog("[SPIKE] selection: location=%d length=%d", sel.location, sel.length)
+        logLine("SPIKE", "selection: location=\(sel.location) length=\(sel.length)")
     }
 
     func textDidChange(_ notification: Notification) {
-        NSLog("[SPIKE] textDidChange, length=%d",
-              textView.textStorage?.length ?? -1)
-        // Force layout invalidation + viewport refresh so the grid fragment
-        // redraws with updated source. Without this the custom fragment
-        // keeps its cached draw.
-        if let tlm = textView.textLayoutManager {
+        guard let tv = notification.object as? NSTextView, tv === textView else { return }
+        logLine("SPIKE", "textDidChange, length=\(tv.textStorage?.length ?? -1)")
+        if let tlm = tv.textLayoutManager {
             tlm.invalidateLayout(for: tlm.documentRange)
             tlm.textViewportLayoutController.layoutViewport()
-            textView.needsDisplay = true
+            tv.needsDisplay = true
         }
     }
 

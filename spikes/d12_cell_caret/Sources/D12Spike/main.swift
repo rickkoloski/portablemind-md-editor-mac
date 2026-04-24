@@ -33,6 +33,27 @@ let cell1X: CGFloat = 20
 let cell2X: CGFloat = 360
 let cellWidth: CGFloat = 320
 let cellContentFontSize: CGFloat = 18
+
+/// Tunable knobs exposed as live inputs in the window toolbar so CD
+/// can dial in visual alignment in real time. Edits to these values
+/// trigger a full layout invalidation + redraw.
+enum TuningKnobs {
+    /// Vertical offset applied to cell rects (and their content),
+    /// in fragment-local coords. Shifts cells up (negative) or down
+    /// (positive). Use to align the cell box with the caret's Y.
+    /// Default -7.5 dialed in by CD 2026-04-24 against Menlo 18pt.
+    static var cellYOffset: CGFloat = -7.5
+    /// Horizontal inset of the CARET only inside each cell (measured
+    /// from the cell's left edge). The cell content text is drawn at
+    /// a fixed 8pt inset independently. Use this to dial the caret's
+    /// column alignment with the text without moving the text.
+    /// Default 13 dialed in by CD 2026-04-24 against Menlo 18pt.
+    static var caretXOffset: CGFloat = 13
+}
+
+/// Fixed horizontal inset for cell content text drawing. Decoupled from
+/// the caret X knob so CD can tune caret alignment independently.
+let cellContentXInset: CGFloat = 8
 /// Exact char width of the cell-content font, measured once.
 let perCharStride: CGFloat = {
     let font = NSFont.monospacedSystemFont(ofSize: cellContentFontSize, weight: .regular)
@@ -110,7 +131,14 @@ final class CellGridFragment: NSTextLayoutFragment {
     }
 
     override var renderingSurfaceBounds: CGRect {
-        CGRect(origin: .zero, size: layoutFragmentFrame.size)
+        // Extend vertically (both above and below the layoutFragmentFrame)
+        // so that cellYOffset tuning can shift cell drawing outside the
+        // natural bounds without getting clipped. The TextKit 2 header
+        // explicitly allows a negative-Y origin here.
+        let extra: CGFloat = 80
+        return CGRect(x: 0, y: -extra,
+                      width: layoutFragmentFrame.width,
+                      height: layoutFragmentFrame.height + 2 * extra)
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
@@ -131,8 +159,9 @@ final class CellGridFragment: NSTextLayoutFragment {
         context.saveGState()
         defer { context.restoreGState() }
 
-        let rect1 = cell1Rect.offsetBy(dx: point.x, dy: point.y)
-        let rect2 = cell2Rect.offsetBy(dx: point.x, dy: point.y)
+        let dy = point.y + TuningKnobs.cellYOffset
+        let rect1 = cell1Rect.offsetBy(dx: point.x, dy: dy)
+        let rect2 = cell2Rect.offsetBy(dx: point.x, dy: dy)
 
         // Yellow fill so it's OBVIOUS this fragment is drawing.
         context.setFillColor(NSColor.yellow.cgColor)
@@ -157,19 +186,19 @@ final class CellGridFragment: NSTextLayoutFragment {
         NSGraphicsContext.current = gc
 
         let ns = source as NSString
-        // Draw cell content at the top-left of each cell with a small
-        // left inset. Vertical origin = 0 so content sits on the line
-        // fragment's baseline area (the same y the caret draws at).
+        // Text draws at a fixed inset; caret X tuning is independent.
         if cellRanges.count >= 1 {
             let txt = ns.substring(with: cellRanges[0])
             (txt as NSString).draw(
-                at: CGPoint(x: rect1.origin.x + 8, y: rect1.origin.y + 4),
+                at: CGPoint(x: rect1.origin.x + cellContentXInset,
+                            y: rect1.origin.y + 4),
                 withAttributes: attrs)
         }
         if cellRanges.count >= 2 {
             let txt = ns.substring(with: cellRanges[1])
             (txt as NSString).draw(
-                at: CGPoint(x: rect2.origin.x + 8, y: rect2.origin.y + 4),
+                at: CGPoint(x: rect2.origin.x + cellContentXInset,
+                            y: rect2.origin.y + 4),
                 withAttributes: attrs)
         }
 
@@ -256,25 +285,23 @@ final class CellDataSource: NSObject, NSTextSelectionDataSource {
         }
         let c1 = ranges[0]
         let c2 = ranges[1]
+        let pad = TuningKnobs.caretXOffset
 
         if i < c1.location {
-            // Before cell 1 — left edge of cell 1.
-            return cell1X + 8
+            return cell1X + pad
         }
         if i <= c1.location + c1.length {
             let local = i - c1.location
-            return cell1X + 8 + CGFloat(local) * perCharStride
+            return cell1X + pad + CGFloat(local) * perCharStride
         }
         if i < c2.location {
-            // Between cells — right edge of cell 1.
-            return cell1X + cellWidth - 8
+            return cell1X + cellWidth - pad
         }
         if i <= c2.location + c2.length {
             let local = i - c2.location
-            return cell2X + 8 + CGFloat(local) * perCharStride
+            return cell2X + pad + CGFloat(local) * perCharStride
         }
-        // After cell 2 — right edge of cell 2.
-        return cell2X + cellWidth - 8
+        return cell2X + cellWidth - pad
     }
 
     func enumerateCaretOffsetsInLineFragment(
@@ -339,8 +366,11 @@ final class CellDataSource: NSObject, NSTextSelectionDataSource {
         let targetRange: NSRange = (point.x < midX) ? c1 : c2
         logLine("CELL-DS", "lfr for (\(point.x), \(point.y)) midX=\(midX) → \(NSEqualRanges(targetRange, c1) ? "cell 1" : "cell 2")")
 
+        // Extend by +1 so the caret can land AT the content-end position
+        // (one past the last character). Without this, clicks to the right
+        // of the last char snap back to "before the last char".
         guard let start = tlm.location(docStart, offsetBy: targetRange.location),
-              let end = tlm.location(start, offsetBy: targetRange.length)
+              let end = tlm.location(start, offsetBy: targetRange.length + 1)
         else { return tlm.lineFragmentRange(for: point, inContainerAt: location) }
 
         return NSTextRange(location: start, end: end)
@@ -549,12 +579,14 @@ final class LoggingTextView: NSTextView {
 
 // MARK: - App
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NSTextFieldDelegate {
     var window: NSWindow!
     var textView: NSTextView!
     var logTextView: NSTextView!
     var dataSource: CellDataSource!
     var gridDelegate: GridDelegate!
+    var yOffsetField: NSTextField!
+    var xOffsetField: NSTextField!
 
     @objc func copyLogsToClipboard(_ sender: Any?) {
         let pb = NSPasteboard.general
@@ -567,7 +599,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         logTextView?.textStorage?.mutableString.setString("")
     }
 
+    /// Called on Enter from the offset fields AND on every char via
+    /// controlTextDidChange — lets CD dial values in real time.
+    private func applyOffsets() {
+        if let y = Double(yOffsetField.stringValue) {
+            TuningKnobs.cellYOffset = CGFloat(y)
+        }
+        if let x = Double(xOffsetField.stringValue) {
+            TuningKnobs.caretXOffset = CGFloat(x)
+        }
+        logLine("TUNE", "cellYOffset=\(TuningKnobs.cellYOffset) caretXOffset=\(TuningKnobs.caretXOffset)")
+
+        // TextKit 2 caches the CellGridFragment's rendering. Plain
+        // `invalidateLayout(for:)` marks layout dirty but doesn't drop
+        // the fragment's cached draw. Same pattern D8.1 production uses:
+        // signal `.editedAttributes` on the storage to force the fragment
+        // cache to evict, then invalidate + force a layout pass.
+        guard let tlm = textView.textLayoutManager,
+              let tcm = tlm.textContentManager,
+              let storage = textView.textStorage
+        else { return }
+
+        let fullNSRange = NSRange(location: 0, length: storage.length)
+        storage.beginEditing()
+        storage.edited(.editedAttributes, range: fullNSRange, changeInLength: 0)
+        storage.endEditing()
+        tlm.invalidateLayout(for: tcm.documentRange)
+        tlm.textViewportLayoutController.layoutViewport()
+        textView.needsDisplay = true
+    }
+
+    @objc func offsetFieldChanged(_ sender: Any?) { applyOffsets() }
+
+    @objc func resetOffsets(_ sender: Any?) {
+        yOffsetField.stringValue = "-7.5"
+        xOffsetField.stringValue = "13"
+        applyOffsets()
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        // Live update as the user types in either offset field.
+        applyOffsets()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Force light appearance so labels, button text, and hints stay
+        // readable against the white backgrounds we use explicitly.
+        NSApp.appearance = NSAppearance(named: .aqua)
         let windowSize = NSSize(width: 900, height: 600)
         window = NSWindow(
             contentRect: NSRect(origin: .zero, size: windowSize),
@@ -616,7 +694,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         textView.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
         textView.isEditable = true
         textView.isSelectable = true
-        textView.textContainerInset = NSSize(width: 10, height: 10)
+        textView.textContainerInset = NSSize(width: 10, height: 80)
         textView.delegate = self
 
         // Install delegate + data source BEFORE setting the string.
@@ -650,19 +728,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let toolbar = NSView(frame: toolbarRect)
         toolbar.autoresizingMask = [.width, .minYMargin]
 
-        let copyBtn = NSButton(frame: NSRect(x: 8, y: 2, width: 120, height: 24))
+        let copyBtn = NSButton(frame: NSRect(x: 8, y: 2, width: 110, height: 24))
         copyBtn.title = "Copy logs"
         copyBtn.bezelStyle = .rounded
         copyBtn.target = self
         copyBtn.action = #selector(copyLogsToClipboard(_:))
         toolbar.addSubview(copyBtn)
 
-        let clearBtn = NSButton(frame: NSRect(x: 136, y: 2, width: 100, height: 24))
+        let clearBtn = NSButton(frame: NSRect(x: 124, y: 2, width: 70, height: 24))
         clearBtn.title = "Clear"
         clearBtn.bezelStyle = .rounded
         clearBtn.target = self
         clearBtn.action = #selector(clearLogs(_:))
         toolbar.addSubview(clearBtn)
+
+        let yLabel = NSTextField(labelWithString: "cell Y:")
+        yLabel.frame = NSRect(x: 210, y: 5, width: 50, height: 18)
+        toolbar.addSubview(yLabel)
+
+        yOffsetField = NSTextField(frame: NSRect(x: 262, y: 2, width: 60, height: 24))
+        yOffsetField.stringValue = "\(TuningKnobs.cellYOffset)"
+        yOffsetField.alignment = .right
+        yOffsetField.target = self
+        yOffsetField.action = #selector(offsetFieldChanged(_:))
+        yOffsetField.delegate = self
+        yOffsetField.isEditable = true
+        yOffsetField.isBordered = true
+        yOffsetField.isBezeled = true
+        yOffsetField.drawsBackground = true
+        yOffsetField.backgroundColor = .white
+        yOffsetField.textColor = .black
+        toolbar.addSubview(yOffsetField)
+
+        let xLabel = NSTextField(labelWithString: "caret X:")
+        xLabel.frame = NSRect(x: 334, y: 5, width: 56, height: 18)
+        toolbar.addSubview(xLabel)
+
+        xOffsetField = NSTextField(frame: NSRect(x: 392, y: 2, width: 60, height: 24))
+        xOffsetField.stringValue = "\(TuningKnobs.caretXOffset)"
+        xOffsetField.alignment = .right
+        xOffsetField.target = self
+        xOffsetField.action = #selector(offsetFieldChanged(_:))
+        xOffsetField.delegate = self
+        xOffsetField.isEditable = true
+        xOffsetField.isBordered = true
+        xOffsetField.isBezeled = true
+        xOffsetField.drawsBackground = true
+        xOffsetField.backgroundColor = .white
+        xOffsetField.textColor = .black
+        toolbar.addSubview(xOffsetField)
+
+        logLine("SPIKE", "tuning fields created: yField frame=\(NSStringFromRect(yOffsetField.frame)) xField frame=\(NSStringFromRect(xOffsetField.frame))")
+        logLine("SPIKE", "toolbar frame=\(NSStringFromRect(toolbar.frame)) subviews=\(toolbar.subviews.count)")
+
+        let resetBtn = NSButton(frame: NSRect(x: 464, y: 2, width: 80, height: 24))
+        resetBtn.title = "Reset"
+        resetBtn.bezelStyle = .rounded
+        resetBtn.target = self
+        resetBtn.action = #selector(resetOffsets(_:))
+        toolbar.addSubview(resetBtn)
+
+        let hint = NSTextField(labelWithString: "edits redraw live")
+        hint.frame = NSRect(x: 552, y: 5, width: 140, height: 18)
+        hint.textColor = NSColor.secondaryLabelColor
+        hint.font = NSFont.systemFont(ofSize: 11)
+        toolbar.addSubview(hint)
 
         content.addSubview(toolbar)
 

@@ -104,6 +104,47 @@ Append as you work through. Each finding: tier/case ID, expected, observed, impl
 
 - **2.6 Tab / Shift+Tab**: implemented in the same `keyDown` override but **untested by CD** in this session. Behavior: Tab in cell 1 → cell 2 start; Tab in cell 2 → cell 2 end. Shift+Tab in cell 2 → cell 1 end; Shift+Tab in cell 1 → cell 1 start. Should exercise in a later test pass.
 
+### Caret visual alignment (tuning pass)
+
+- **Problem 1 — caret Y above cell**: observed 2026-04-24. Cause: `fragmentHeight=40` with cells drawn at y=0; the line fragment's natural y-position was at y=0-17, but the cells drawn at y=0-40 appeared below where NSTextView actually drew the caret (specifically after the textContainerInset was factored in). Fixed by adding a `cellYOffset` tuning knob exposed as a live NSTextField in the window toolbar. CD dialed `cellYOffset = -7.5` (Menlo 18pt) for visual alignment.
+
+- **Problem 2 — caret x not matching character**: `perCharStride` was hand-tuned to 12pt, slightly off from Menlo 18pt's natural ~11.13pt. Fixed by measuring char width dynamically from the font. CD then dialed `caretXOffset = 13` to fine-tune the caret's first-char position within each cell (the text content remains at a fixed 8pt inset — caret X is decoupled from text position).
+
+- **Problem 3 — click past last char snaps to before last char**: classic off-by-one in NSRange→NSTextRange conversion. `NSRange(location: 2, length: 8)` maps to caret positions 2..9 inside the range, but the "after last char" position (offset 10) was being excluded. Fixed by adding `+1` to the length when constructing the `NSTextRange` returned from `lineFragmentRangeForPoint`, so the caret can land at content-end positions.
+
+- **Problem 4 — rendering clipped on negative cellYOffset**: `renderingSurfaceBounds` returned a rect with non-negative origin, so cells drawn above the fragment's y=0 were clipped. Fixed by extending the bounds `±80pt` vertically (the header explicitly allows negative origins).
+
+- **Problem 5 — tuning knobs didn't live-update**: `invalidateLayout(for:)` alone doesn't drop the CellGridFragment's cached render. Same issue D8.1 hit — fix is `storage.beginEditing` / `storage.edited(.editedAttributes, range:, changeInLength: 0)` / `endEditing` to force the fragment cache to evict, then invalidate + layout.
+
+- **Final tuned values baked in**: `cellYOffset = -7.5`, `caretXOffset = 13`, `cellContentXInset = 8`, `perCharStride = measured "M" at Menlo 18pt`. These are the spike's defaults; production will need equivalent knobs (likely derived from font metrics instead of hard-coded numbers).
+
+- **Implications for production**: tuning knobs should NOT be hard-coded numbers like 13 and -7.5. They should be derived from:
+  - Font metrics (ascender, descender, leading) for Y alignment.
+  - Font bearings and advance widths for caret X alignment.
+  - Proper line-fragment + caret-rect geometry queries via NSTextLayoutManager.
+  - The spike values are reference anchors; production must replace with derived formulas so alignment stays correct across font sizes, weights, and styles.
+
+### UX improvements added mid-session (not a test tier, but worth noting)
+
+- **In-window log pane** with **Copy logs** and **Clear** buttons — real-time event/state visibility without having to look at a terminal. Black-on-white so readable regardless of system dark/light mode (app is forced to Aqua appearance).
+- **Split view**: top = editor inside a scroll view (production-like setup; no more cells-at-bottom-of-window artifact), middle toolbar = log + tuning controls, bottom = log pane.
+- **Tuning knobs**: `cell Y:` and `caret X:` NSTextField inputs in the toolbar. Live-update on every character typed (via `controlTextDidChange`). `Reset` button restores to baked-in defaults.
+- **`run.sh`**: bundles the SwiftPM executable into `D12Spike.app` with a proper `Info.plist` so macOS's window management works reliably. Without the app bundle, windows would sometimes be invisible or off-screen.
+
+### Cell geometry — coord system reference
+
+Confirmed in discussion 2026-04-24: the tuning offsets are **cell-relative**, not fragment-absolute. Three anchor constants drive all cell geometry:
+
+```swift
+let cell1X: CGFloat = 20
+let cell2X: CGFloat = 360
+let cellWidth: CGFloat = 320
+```
+
+All downstream geometry — cell draw rects, cell content text x, caret x per offset, click hit-test midpoint — is derived from these three. Changing `cell2X` (say, to reduce the inter-cell gap) propagates through everything without breaking the tuning knobs, because the offsets are per-cell.
+
+**Implication for production**: the same separation should hold. `TableLayout`'s column positions are the "model anchors"; any per-cell tuning (paddings, offsets) should be expressed relative to those anchors, not to document-absolute coordinates. That mirrors the pattern CD uses in gantt/flowchart/UML editors — model shapes have positions; content within shapes has offsets. Moving shapes doesn't invalidate offsets.
+
 ---
 
 ## Known polish items (not blocking tier work)

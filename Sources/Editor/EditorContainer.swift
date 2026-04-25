@@ -69,6 +69,16 @@ struct EditorContainer: NSViewRepresentable {
             context.coordinator.cellSelectionDataSource = cellDataSource
             tlm.textSelectionNavigation = NSTextSelectionNavigation(
                 dataSource: cellDataSource)
+
+            // D12 step 3 + 5: replace D8.1's caret-in-range auto-reveal
+            // with explicit double-click trigger. The text view fires
+            // this callback when a double-click hits a TableRowFragment;
+            // the Coordinator toggles reveal state.
+            textView.onDoubleClickRevealRequest = {
+                [weak coord = context.coordinator,
+                 weak tv = textView] attachment in
+                coord?.revealRow(for: attachment, in: tv)
+            }
         } else {
             NSLog("TEXTKIT2-WARNING: textLayoutManager is nil — NOT on TextKit 2 code path")
         }
@@ -254,6 +264,11 @@ struct EditorContainer: NSViewRepresentable {
         /// fragments (grid → default or default → grid).
         private var revealedTableLayoutID: ObjectIdentifier?
 
+        /// D12 step 5: retired the caret-in-range auto-reveal. This
+        /// method now only handles UN-reveal: when the caret leaves
+        /// the currently-revealed table, snap that table back to
+        /// grid mode. Reveal is triggered explicitly via
+        /// `revealRow(for:in:)` from the text view's double-click.
         private func updateTableReveal(in textView: LiveRenderTextView) {
             guard let storage = textView.textStorage,
                   let tlm = textView.textLayoutManager,
@@ -274,31 +289,25 @@ struct EditorContainer: NSViewRepresentable {
             let newLayoutID = newAttachment.map { ObjectIdentifier($0.layout) }
             if newLayoutID == revealedTableLayoutID { return }
 
-            // Collect (range, desired-state) so we can strip or restore
-            // the grid-height paragraph style as part of the same edit
-            // transaction that forces TextKit 2 to re-fragment.
             struct Target {
                 let range: NSRange
-                /// `true` if this table is now revealed (strip
-                /// paragraph style so source mode uses natural line
-                /// height); `false` if returning to grid (restore the
-                /// height paragraph style per row).
                 let revealed: Bool
             }
             var targets: [Target] = []
-            if let oldID = revealedTableLayoutID {
+            // Only un-reveal when the caret crosses out of the
+            // currently-revealed table. Un-reveal also fires when the
+            // caret moves to a DIFFERENT table — but doesn't auto-
+            // reveal the new one. Double-click is the only way to
+            // enter source mode now.
+            if let oldID = revealedTableLayoutID,
+               oldID != newLayoutID {
                 delegate.revealedTables.remove(oldID)
                 if let oldRange = findTableRange(for: oldID, in: storage) {
                     targets.append(Target(range: oldRange, revealed: false))
                 }
+                revealedTableLayoutID = nil
             }
-            if let newID = newLayoutID, let newAttachment {
-                delegate.revealedTables.insert(newID)
-                targets.append(Target(
-                    range: newAttachment.layout.tableRange,
-                    revealed: true))
-            }
-            revealedTableLayoutID = newLayoutID
+            if targets.isEmpty { return }
 
             // Force TextKit 2 to re-fragment. `invalidateLayout(for:)`
             // alone keeps cached fragments and the delegate never gets
@@ -320,6 +329,65 @@ struct EditorContainer: NSViewRepresentable {
                                range: clamped,
                                changeInLength: 0)
                 if let textRange = textRange(for: clamped, in: tcm) {
+                    tlm.invalidateLayout(for: textRange)
+                }
+            }
+            storage.endEditing()
+            tlm.textViewportLayoutController.layoutViewport()
+            textView.needsDisplay = true
+        }
+
+        /// D12 step 5: explicit reveal triggered by double-click on a
+        /// table cell. Toggles the row's table to source mode by
+        /// inserting the layout ID into `revealedTables` and forcing
+        /// the affected source range to re-fragment.
+        func revealRow(for attachment: TableRowAttachment,
+                       in textView: LiveRenderTextView?) {
+            guard let textView,
+                  let storage = textView.textStorage,
+                  let tlm = textView.textLayoutManager,
+                  let tcm = tlm.textContentManager,
+                  let delegate = tlm.delegate as? TableLayoutManagerDelegate
+            else { return }
+            let newID = ObjectIdentifier(attachment.layout)
+            // If we're already revealing this same table, no-op.
+            if revealedTableLayoutID == newID { return }
+            // Un-reveal whatever was previously revealed.
+            var unrevealRange: NSRange?
+            if let oldID = revealedTableLayoutID {
+                delegate.revealedTables.remove(oldID)
+                unrevealRange = findTableRange(for: oldID, in: storage)
+            }
+            delegate.revealedTables.insert(newID)
+            revealedTableLayoutID = newID
+
+            storage.beginEditing()
+            if let r = unrevealRange {
+                let clamped = NSIntersectionRange(
+                    r, NSRange(location: 0, length: storage.length))
+                if clamped.length > 0 {
+                    adjustParagraphStyles(in: clamped,
+                                          revealed: false,
+                                          storage: storage)
+                    storage.edited(.editedAttributes,
+                                   range: clamped,
+                                   changeInLength: 0)
+                    if let textRange = textRange(for: clamped, in: tcm) {
+                        tlm.invalidateLayout(for: textRange)
+                    }
+                }
+            }
+            let revealRange = NSIntersectionRange(
+                attachment.layout.tableRange,
+                NSRange(location: 0, length: storage.length))
+            if revealRange.length > 0 {
+                adjustParagraphStyles(in: revealRange,
+                                      revealed: true,
+                                      storage: storage)
+                storage.edited(.editedAttributes,
+                               range: revealRange,
+                               changeInLength: 0)
+                if let textRange = textRange(for: revealRange, in: tcm) {
                     tlm.invalidateLayout(for: textRange)
                 }
             }

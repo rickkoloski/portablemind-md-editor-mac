@@ -67,16 +67,26 @@ final class TableLayout {
     /// layout when toggling grid ↔ source reveal state (D8.1).
     let tableRange: NSRange
 
+    /// Per-cell source-content ranges, parallel to `cellContentPerRow`.
+    /// `cellRanges[rowIdx][colIdx]` is the absolute NSRange in the
+    /// document source covering the cell's trimmed content (between
+    /// pipes, with surrounding whitespace stripped). Empty cells are
+    /// represented as zero-length ranges at the trim-target offset.
+    /// Used by D12's per-cell click + caret routing.
+    let cellRanges: [[NSRange]]
+
     init(columnCount: Int,
          contentWidths: [CGFloat],
          alignments: [Markdown.Table.ColumnAlignment?],
          cellContentPerRow: [[NSAttributedString]],
-         tableRange: NSRange) {
+         tableRange: NSRange,
+         cellRanges: [[NSRange]]) {
         self.columnCount = columnCount
         self.contentWidths = contentWidths
         self.alignments = alignments
         self.cellContentPerRow = cellContentPerRow
         self.tableRange = tableRange
+        self.cellRanges = cellRanges
 
         var leadings: [CGFloat] = []
         var trailings: [CGFloat] = []
@@ -105,6 +115,82 @@ final class TableLayout {
             heights.append(maxCellHeight + cellInset.top + cellInset.bottom)
         }
         self.rowHeight = heights
+    }
+}
+
+// MARK: - Cell-range parsing
+
+extension TableLayout {
+    /// Parse a row's source line into per-cell content ranges. Returns
+    /// ABSOLUTE source NSRanges (the caller passes the row's start
+    /// offset and length within the full document `ns`). Empty cells
+    /// are recorded as zero-length ranges at the trim-target offset
+    /// so they remain addressable for click + caret placement. The
+    /// trailing "phantom" empty cell after the closing `|` is dropped.
+    ///
+    /// Algorithm: tokenize on pipes; for each between-pipe span, trim
+    /// surrounding whitespace; record the resulting (possibly zero-
+    /// length) range. Algorithmic mirror of the validated spike
+    /// implementation in `spikes/d12_cell_caret/`.
+    static func parseCellRanges(in ns: NSString,
+                                rowStart: Int,
+                                rowLength: Int) -> [NSRange] {
+        var ranges: [NSRange] = []
+        let PIPE: unichar = 0x7c
+        let SPACE: unichar = 0x20
+        let NEWLINE: unichar = 0x0a
+        let rowEnd = rowStart + rowLength
+
+        var i = rowStart
+        // First char must be a pipe (otherwise it's not a table row).
+        if i < rowEnd, ns.character(at: i) == PIPE {
+            i += 1
+        } else {
+            return []
+        }
+
+        while i < rowEnd {
+            if ns.character(at: i) == NEWLINE { break }
+
+            let spanStart = i
+            while i < rowEnd,
+                  ns.character(at: i) != PIPE,
+                  ns.character(at: i) != NEWLINE {
+                i += 1
+            }
+            let spanEnd = i
+
+            // Trim leading whitespace.
+            var contentStart = spanStart
+            while contentStart < spanEnd,
+                  ns.character(at: contentStart) == SPACE {
+                contentStart += 1
+            }
+            // Trim trailing whitespace.
+            var contentEnd = spanEnd
+            while contentEnd > contentStart,
+                  ns.character(at: contentEnd - 1) == SPACE {
+                contentEnd -= 1
+            }
+            ranges.append(NSRange(location: contentStart,
+                                  length: contentEnd - contentStart))
+
+            // Advance past the closing pipe (if any).
+            if i < rowEnd, ns.character(at: i) == PIPE {
+                i += 1
+            } else {
+                break
+            }
+        }
+
+        // Drop the trailing empty range produced by the closing pipe
+        // at end-of-row (`| a | b |` tokenizes as ["a","b",""] — the
+        // empty trailing element is bogus).
+        if let last = ranges.last, last.length == 0,
+           last.location >= rowEnd - 1 {
+            ranges.removeLast()
+        }
+        return ranges
     }
 }
 

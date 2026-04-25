@@ -241,12 +241,43 @@ private final class RenderVisitor {
         }
         widths = widths.map { max($0, 60) }
 
+        // D12 step 1 — pre-compute the source line range for each row
+        // so we can parse per-cell content ranges before constructing
+        // the layout. cellRanges is parallel to cellContentPerRow:
+        //   cellRanges[0]    = header cells
+        //   cellRanges[1..n] = body row N's cells
+        let headerLineRange = clampedLineRange(
+            startingNear: sourceNSRange(table.head)?.location ?? tableRange.location,
+            within: tableRange
+        )
+        var cellRanges: [[NSRange]] = []
+        if let hr = headerLineRange {
+            cellRanges.append(TableLayout.parseCellRanges(
+                in: nsSource, rowStart: hr.location, rowLength: hr.length))
+        } else {
+            cellRanges.append([])
+        }
+        var bodyClampedRanges: [NSRange?] = []
+        for row in bodyRows {
+            let rawStart = sourceNSRange(row)?.location ?? 0
+            let clamped = clampedLineRange(
+                startingNear: rawStart, within: tableRange)
+            bodyClampedRanges.append(clamped)
+            if let r = clamped {
+                cellRanges.append(TableLayout.parseCellRanges(
+                    in: nsSource, rowStart: r.location, rowLength: r.length))
+            } else {
+                cellRanges.append([])
+            }
+        }
+
         let layout = TableLayout(
             columnCount: columnCount,
             contentWidths: widths,
             alignments: table.columnAlignments,
             cellContentPerRow: cellContentPerRow,
-            tableRange: tableRange
+            tableRange: tableRange,
+            cellRanges: cellRanges
         )
 
         // Build a paragraph style that reserves the target row height
@@ -262,11 +293,6 @@ private final class RenderVisitor {
             style.maximumLineHeight = height
             return style
         }
-
-        let headerLineRange = clampedLineRange(
-            startingNear: sourceNSRange(table.head)?.location ?? tableRange.location,
-            within: tableRange
-        )
         if let headerLineRange = headerLineRange {
             let headerHeight = layout.rowHeight.first ?? 20
             assignments.append(AttributeAssignment(
@@ -303,14 +329,12 @@ private final class RenderVisitor {
             }
         }
 
-        // Body rows — tag each clamped to its own line.
+        // Body rows — tag each clamped to its own line. Use the
+        // pre-computed `bodyClampedRanges` so we don't pay for
+        // clampedLineRange twice.
         let totalRowCount = 1 + bodyRows.count
-        for (bodyIdx, row) in bodyRows.enumerated() {
-            let rawStart = sourceNSRange(row)?.location ?? 0
-            guard let clamped = clampedLineRange(
-                startingNear: rawStart,
-                within: tableRange
-            ) else { continue }
+        for (bodyIdx, _) in bodyRows.enumerated() {
+            guard let clamped = bodyClampedRanges[bodyIdx] else { continue }
             let rowIdx = bodyIdx + 1 // index 0 = header
             let isLast = rowIdx == totalRowCount - 1
             let rowHeight = rowIdx < layout.rowHeight.count

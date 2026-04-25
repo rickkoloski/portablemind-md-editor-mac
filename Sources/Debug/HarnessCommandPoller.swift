@@ -116,6 +116,41 @@ final class HarnessCommandPoller {
                 "w": frame.width, "h": frame.height
             ]
         }
+
+        // D12 — surface table structure for any TableLayouts present in
+        // the storage. Walks unique TableLayout instances so we report
+        // each table once with its full cellRanges + tableRange.
+        if let storage = tv.textStorage {
+            var seenLayouts: Set<ObjectIdentifier> = []
+            var tables: [[String: Any]] = []
+            storage.enumerateAttribute(
+                TableAttributeKeys.rowAttachmentKey,
+                in: NSRange(location: 0, length: storage.length),
+                options: []
+            ) { value, _, _ in
+                guard let attachment = value as? TableRowAttachment else { return }
+                let id = ObjectIdentifier(attachment.layout)
+                guard !seenLayouts.contains(id) else { return }
+                seenLayouts.insert(id)
+                let layout = attachment.layout
+                let cellRangesPayload: [[[String: Int]]] =
+                    layout.cellRanges.map { row in
+                        row.map { ["location": $0.location, "length": $0.length] }
+                    }
+                tables.append([
+                    "tableRange": [
+                        "location": layout.tableRange.location,
+                        "length": layout.tableRange.length
+                    ],
+                    "columnCount": layout.columnCount,
+                    "cellRanges": cellRangesPayload
+                ])
+            }
+            if !tables.isEmpty {
+                payload["tables"] = tables
+            }
+        }
+
         if let data = try? JSONSerialization.data(
             withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: path))

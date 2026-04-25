@@ -60,6 +60,15 @@ struct EditorContainer: NSViewRepresentable {
             let tableDelegate = TableLayoutManagerDelegate()
             context.coordinator.tableLayoutDelegate = tableDelegate
             tlm.delegate = tableDelegate
+
+            // D12 step 2: install a custom NSTextSelectionDataSource
+            // that routes click + caret enumeration through table-cell
+            // geometry. Coordinator retains the data source; the
+            // navigation holds it weakly.
+            let cellDataSource = CellSelectionDataSource(wrapping: tlm)
+            context.coordinator.cellSelectionDataSource = cellDataSource
+            tlm.textSelectionNavigation = NSTextSelectionNavigation(
+                dataSource: cellDataSource)
         } else {
             NSLog("TEXTKIT2-WARNING: textLayoutManager is nil — NOT on TextKit 2 code path")
         }
@@ -130,6 +139,9 @@ struct EditorContainer: NSViewRepresentable {
         /// D8: strong ref so the NSTextLayoutManager delegate stays
         /// alive for the text view's lifetime.
         var tableLayoutDelegate: TableLayoutManagerDelegate?
+        /// D12: strong ref so the custom NSTextSelectionDataSource
+        /// stays alive (the navigation holds it weakly).
+        var cellSelectionDataSource: CellSelectionDataSource?
         let cursorTracker = CursorLineTracker()
         private let document: EditorDocument
         private var cancellables: Set<AnyCancellable> = []

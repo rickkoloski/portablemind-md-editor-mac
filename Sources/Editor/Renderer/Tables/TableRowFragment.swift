@@ -10,7 +10,9 @@ import Foundation
 /// with ~2pt height. Header and body rows render their cells using
 /// the shared `TableLayout`'s pre-rendered attributed strings.
 final class TableRowFragment: NSTextLayoutFragment {
-    private let attachment: TableRowAttachment
+    /// Internal so `CellSelectionDataSource` can read the attachment
+    /// from a fragment hit-tested by point.
+    let attachment: TableRowAttachment
 
     init(textElement: NSTextElement,
          range: NSTextRange?,

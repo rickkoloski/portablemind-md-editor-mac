@@ -79,20 +79,23 @@ Added mid-session so CC can drive the spike without needing CD to click:
 
 - **Works unattended** after macOS Accessibility permission is granted to osascript / cliclick one time. No per-test human loop required.
 
-### Tier 4 — editing edge cases
+### Tier 4 — editing edge cases ✅ DONE
 
-- [ ] Typing **past the cell's visible width** — cell content grows; decide whether to wrap or overflow.
-- [ ] Typing a literal **pipe `|`** inside a cell — does it corrupt the grid parse?
-- [ ] **Empty cell** (`| | cell two |`) — click into empty space, type.
+- [x] **Typing past cell width** — source updates correctly, but text **visually overflows** the cell box; cell 2's content draws on top of the overflow (no clipping). **Production:** `CellGridFragment.draw` must clip cell content to cell bounds (or wrap content within the cell width).
+- [x] **Typing a literal `|`** in cell content — adds a NEW cell to the row's structure (`| cell| one | cell two |` parses as 3 cells). The spike's hardcoded-2-cell fragment doesn't adapt; production's `TableLayout` supports N cells, so it would render correctly. **Production policy needed:** auto-escape typed pipes to `\|`, allow the structural change, or block pipe input in cell-edit mode. Word/Docs would block.
+- [x] **Empty cell** — `parseCellRanges` had to be rewritten to record zero-length ranges instead of skipping empty cells (the old "skip leading pipe + whitespace" loop swallowed empty cells entirely). After the fix, empty cells parse correctly. BUT: clicking into an empty cell + typing inserts the typed char into the NEXT cell, not the empty cell — because the +1 hack on `lineFragmentRangeForPoint` extends the range past the empty cell's content-end into the inter-cell whitespace, and NSTextView picks that offset for the click. **Production:** empty cells need either special-case caret routing constraining to the empty position, OR insert-time logic that detects "caret at offset just past empty-cell content" and redirects insert into the empty cell.
 
-### Tier 5 — selection
+### Tier 5 — selection highlights ✅ DONE
 
-- [~] **Drag-select within a cell** — CD observation (2026-04-24): drag selection **works logically** (subsequent operations like copy, typing-replaces behave as if there's a selection) but **no visual highlight is drawn**. Cause: NSTextView draws selection highlights via the default layout path; our custom `CellGridFragment.draw` doesn't consult or render the current text-selection's per-cell intersection. Production fix: in `draw(at:in:)`, query the layout manager's `textSelections` and paint per-cell highlight rects before drawing cell content. Spec §3.9 covers this; we already noted it needs implementation.
-- [ ] **Drag-select across cells** — per-cell highlights, not flat source highlight. Same fix as above but spanning row and across cells.
+- [x] **Drag-select within a cell** — implemented via `CellGridFragment.draw` querying `textLayoutManager.textSelections` and intersecting with each cell's source range. Critical fix: cell ranges from `parseCellRanges` are ROW-LOCAL; `textSelections` are ABSOLUTE. Must shift cell ranges by the row's absolute start offset (computed from `rangeInElement.location`) before intersecting.
+- [x] **Drag-select across cells** — same mechanism; multi-cell selections highlight per-cell intersections, with the inter-cell pipe gap NOT highlighted. Cross-row selections highlight per-row per-cell.
+- [~] **Cosmetic gap:** for cross-row selections, NSTextView still draws a default selection highlight band BETWEEN rows (over the source's pipe + newline + pipe characters). Production must suppress the default highlight rendering for table content (likely via overriding the layout manager's highlight drawing or returning an empty highlight rect for those source ranges).
 
-### Tier 6 — secondary trigger (double-click source mode)
+### Tier 6 — secondary trigger (double-click → source mode) ✅ DONE
 
-- [ ] **Double-click a cell** — drop to whole-table source reveal (D8.1 mechanism repurposed).
+- [x] **Double-click a cell** drops THAT row to whole-row pipe-source mode (D8.1-style reveal). Per-row independent — double-clicking row 2 reveals row 2 only; row 1 remains as a grid.
+- [x] **Escape** un-reveals all rows (returns them to grid mode). Production may want a more nuanced un-reveal (e.g., on caret leaving the revealed row).
+- Implementation: `GridDelegate.revealedRowStartOffsets: Set<Int>` tracks which rows are revealed; the delegate returns a default `NSTextLayoutFragment` for those rows instead of `CellGridFragment`. `LoggingTextView.mouseDown` intercepts `clickCount==2` events and toggles the row's reveal state. **Production:** the same machinery already exists in D8.1 production code (`TableLayoutManagerDelegate.revealedTables`) — D12 just changes the trigger from "caret-in-range" to "double-click", per the D12 spec §3.6.
 
 ---
 
@@ -251,10 +254,13 @@ All spike work is committed on `main`:
 Tier progress:
 
 - Tier 1 — click routing ✅
-- Tier 2 — keyboard navigation ✅ (Tab technically implemented + spot-tested autonomously)
-- Tier 3 — multi-row tables ✅ (11 behaviors validated via harness)
-- Tier 4 — editing edge cases ⬜ (runnable autonomously by CC)
-- Tier 5 — selection highlights ⬜ (known: logical works, visual doesn't; fix scoped)
-- Tier 6 — double-click → source mode ⬜
+- Tier 2 — keyboard navigation ✅
+- Tier 3 — multi-row tables ✅ (11 behaviors via harness)
+- **Visual parity** — cells now match production styling (labelColor borders, separator dividers, no fills) ✅
+- Tier 4 — editing edge cases ✅ (3 findings, all production-relevant)
+- Tier 5 — selection highlights ✅ (per-cell intersection drawing in CellGridFragment)
+- Tier 6 — double-click → source mode ✅ (per-row independent reveal)
 
 Harness + tuning infrastructure is production-grade for the spike's purposes. Tuning knobs (`cellYOffset=-7.5`, `caretXOffset=13`) baked in as spike defaults; production must replace with font-metric-derived formulas.
+
+**All planned spike tiers complete.** Next phase: merge spike findings to production `Sources/`. Plan Phase 2 (10 steps) in `docs/current_work/planning/d12_per_cell_table_editing_plan.md`.

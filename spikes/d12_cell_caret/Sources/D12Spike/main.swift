@@ -29,8 +29,11 @@ let initialSourceText = "| cell one | cell two |\n| c1 row 2 | c2 row 2 |\n"
 // Cells are flush with the fragment's top edge (y=0) so the line fragment
 // (where NSTextView draws the caret) sits inside the cell vertically.
 let fragmentHeight: CGFloat = 40
+// Cells abut (no visual gap); the inner vertical divider sits at the
+// boundary. Matches production (cells are contiguous, separators are the
+// only inter-cell visual).
 let cell1X: CGFloat = 20
-let cell2X: CGFloat = 360
+let cell2X: CGFloat = 340   // = cell1X + cellWidth, no gap
 let cellWidth: CGFloat = 320
 let cellContentFontSize: CGFloat = 18
 
@@ -79,9 +82,15 @@ struct Row {
     let cells: [NSRange]         // absolute source ranges of each cell's content
 }
 
-/// Parse a row's cell ranges, returning ABSOLUTE source offsets. The
-/// caller supplies the row's absolute start offset so we shift the
-/// returned ranges accordingly.
+/// Parse a row's cell ranges, returning ABSOLUTE source offsets. Each
+/// cell's range is the cell's CONTENT (between pipes), with surrounding
+/// whitespace trimmed. Empty cells are recorded as zero-length ranges
+/// at the post-leading-whitespace position — so they're addressable for
+/// click + caret placement.
+///
+/// Algorithm: tokenize on pipes, treating each between-pipe span as one
+/// cell. Strip leading + trailing whitespace from each cell's content;
+/// the resulting range may be zero-length.
 private func parseCellRanges(inRowLine ns: NSString,
                              startingAt rowStart: Int,
                              rowLength: Int) -> [NSRange] {
@@ -92,35 +101,57 @@ private func parseCellRanges(inRowLine ns: NSString,
     let rowEnd = rowStart + rowLength
 
     var i = rowStart
-    // Skip leading pipe + whitespace.
-    while i < rowEnd,
-          ns.character(at: i) == PIPE || ns.character(at: i) == SPACE {
+    // Skip the row's leading `|` (only the FIRST pipe; not pipe+space).
+    if i < rowEnd, ns.character(at: i) == PIPE {
         i += 1
+    } else {
+        // No leading pipe — not a table row in our convention.
+        return []
     }
 
+    // Each iteration: read one cell's span (up to the next pipe/newline).
     while i < rowEnd {
         if ns.character(at: i) == NEWLINE { break }
-        let contentStart = i
+
+        // Span starts at i, extends until next pipe or newline.
+        let spanStart = i
         while i < rowEnd,
               ns.character(at: i) != PIPE,
               ns.character(at: i) != NEWLINE {
             i += 1
         }
-        var contentEnd = i
+        let spanEnd = i
+
+        // Trim leading whitespace.
+        var contentStart = spanStart
+        while contentStart < spanEnd,
+              ns.character(at: contentStart) == SPACE {
+            contentStart += 1
+        }
+        // Trim trailing whitespace.
+        var contentEnd = spanEnd
         while contentEnd > contentStart,
               ns.character(at: contentEnd - 1) == SPACE {
             contentEnd -= 1
         }
-        if contentEnd > contentStart {
-            ranges.append(NSRange(location: contentStart,
-                                  length: contentEnd - contentStart))
-        }
-        let advanceStart = i
-        while i < rowEnd,
-              ns.character(at: i) == PIPE || ns.character(at: i) == SPACE {
+        // Record the cell range — even if zero-length (empty cell).
+        ranges.append(NSRange(location: contentStart,
+                              length: contentEnd - contentStart))
+
+        // Advance past the closing pipe (if any).
+        if i < rowEnd, ns.character(at: i) == PIPE {
             i += 1
+        } else {
+            break
         }
-        if i == advanceStart { break }
+    }
+
+    // The closing pipe at end of row produces an empty trailing "cell"
+    // we don't want; drop it. (E.g., "| a | b |" tokenizes as ["a","b",""]
+    // — the empty trailing element is bogus.)
+    if let last = ranges.last, last.length == 0,
+       last.location >= rowEnd - 1 {
+        ranges.removeLast()
     }
     return ranges
 }
@@ -223,22 +254,102 @@ final class CellGridFragment: NSTextLayoutFragment {
         let rect1 = cell1Rect.offsetBy(dx: point.x, dy: dy)
         let rect2 = cell2Rect.offsetBy(dx: point.x, dy: dy)
 
-        // Yellow fill so it's OBVIOUS this fragment is drawing.
-        context.setFillColor(NSColor.yellow.cgColor)
-        context.fill(rect1.insetBy(dx: 0.75, dy: 0.75))
-        context.fill(rect2.insetBy(dx: 0.75, dy: 0.75))
+        // Production-matching look (Sources/Editor/Renderer/Tables/TableRowFragment.swift):
+        //   outer borders: 1.25pt, labelColor @ 60%
+        //   inner dividers: 1pt, separatorColor @ 35%
+        //   no cell fills (cell background is the editor background)
+        //   row divider line at the bottom of each body row
+        let outerThickness: CGFloat = 1.25
+        let innerThickness: CGFloat = 1
+        let outerColor = NSColor.labelColor.withAlphaComponent(0.6).cgColor
+        let innerColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
 
-        context.setStrokeColor(NSColor.red.cgColor)
-        context.setLineWidth(2.0)
-        context.stroke(rect1)
-        context.stroke(rect2)
+        // Combined row rect (cell 1 left edge to cell 2 right edge).
+        let rowRect = rect1.union(rect2)
 
-        // Draw cell content text.
+        // Outer borders (top, bottom, leading, trailing) — drawn around
+        // the whole row's combined bounds.
+        context.setFillColor(outerColor)
+        // Top
+        context.fill(CGRect(x: rowRect.origin.x, y: rowRect.origin.y,
+                            width: rowRect.width, height: outerThickness))
+        // Bottom
+        context.fill(CGRect(x: rowRect.origin.x,
+                            y: rowRect.maxY - outerThickness,
+                            width: rowRect.width, height: outerThickness))
+        // Leading
+        context.fill(CGRect(x: rowRect.origin.x, y: rowRect.origin.y,
+                            width: outerThickness, height: rowRect.height))
+        // Trailing
+        context.fill(CGRect(x: rowRect.maxX - outerThickness,
+                            y: rowRect.origin.y,
+                            width: outerThickness, height: rowRect.height))
+
+        // Inter-cell vertical divider (between cell 1's right edge and
+        // cell 2's left edge — drawn at the gap's midpoint).
+        context.setFillColor(innerColor)
+        let interX = (rect1.maxX + rect2.minX) / 2 - innerThickness / 2
+        context.fill(CGRect(x: interX, y: rowRect.origin.y,
+                            width: innerThickness, height: rowRect.height))
+
+        // Selection highlight per-cell. Layered between chrome and text
+        // so highlight appears UNDER the cell content. Cell ranges from
+        // parseCellRanges are ROW-LOCAL (the paragraph's attributedString
+        // resets to offset 0). To intersect with the layout manager's
+        // ABSOLUTE textSelections, we shift cell ranges by this row's
+        // absolute start offset.
+        if let tlm = self.textLayoutManager,
+           let tcm = tlm.textContentManager {
+            let docStart = tcm.documentRange.location
+            let rowStart = tlm.offset(from: docStart, to: rangeInElement.location)
+            let cellAbsRanges: [(NSRange, CGFloat, CGRect)] = [
+                (cellRanges.count >= 1
+                    ? NSRange(location: cellRanges[0].location + rowStart,
+                              length: cellRanges[0].length)
+                    : NSRange(),
+                 cell1X, rect1),
+                (cellRanges.count >= 2
+                    ? NSRange(location: cellRanges[1].location + rowStart,
+                              length: cellRanges[1].length)
+                    : NSRange(),
+                 cell2X, rect2)
+            ]
+            context.setFillColor(NSColor.selectedTextBackgroundColor.cgColor)
+            for selection in tlm.textSelections {
+                for selRange in selection.textRanges {
+                    let selStart = tlm.offset(from: docStart, to: selRange.location)
+                    let selEnd = tlm.offset(from: docStart, to: selRange.endLocation)
+                    if selEnd <= selStart { continue }
+                    for (cellRange, anchorX, cellViewRect) in cellAbsRanges {
+                        guard cellRange.length > 0 || cellRange.location > 0 else { continue }
+                        let cellLo = cellRange.location
+                        let cellHi = cellRange.location + cellRange.length
+                        let interStart = max(selStart, cellLo)
+                        let interEnd = min(selEnd, cellHi)
+                        if interStart >= interEnd { continue }
+                        let localStart = interStart - cellLo
+                        let localEnd = interEnd - cellLo
+                        let x1 = anchorX + TuningKnobs.caretXOffset
+                            + CGFloat(localStart) * perCharStride
+                        let x2 = anchorX + TuningKnobs.caretXOffset
+                            + CGFloat(localEnd) * perCharStride
+                        let r = CGRect(
+                            x: point.x + x1,
+                            y: cellViewRect.origin.y,
+                            width: x2 - x1,
+                            height: cellViewRect.height)
+                        context.fill(r)
+                    }
+                }
+            }
+        }
+
+        // Cell content text.
         let font = NSFont.monospacedSystemFont(ofSize: cellContentFontSize,
                                                weight: .regular)
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.black
+            .foregroundColor: NSColor.labelColor
         ]
 
         NSGraphicsContext.saveGraphicsState()
@@ -269,16 +380,32 @@ final class CellGridFragment: NSTextLayoutFragment {
 // MARK: - Layout manager delegate
 
 final class GridDelegate: NSObject, NSTextLayoutManagerDelegate {
+    /// Set of row absolute-start offsets that are currently in
+    /// "source-reveal" mode (D8.1-style) — those rows render via the
+    /// default NSTextLayoutFragment so pipe-delimited source is visible
+    /// for whole-row editing.
+    var revealedRowStartOffsets: Set<Int> = []
+
     func textLayoutManager(
         _ textLayoutManager: NSTextLayoutManager,
         textLayoutFragmentFor location: any NSTextLocation,
         in textElement: NSTextElement
     ) -> NSTextLayoutFragment {
         logLine("DELEGATE", "textLayoutFragmentFor element=\(type(of: textElement))")
-        if textElement is NSTextParagraph {
-            logLine("DELEGATE", "  → returning CellGridFragment")
+        if textElement is NSTextParagraph,
+           let elementRange = textElement.elementRange,
+           let tcm = textLayoutManager.textContentManager {
+            let rowStart = textLayoutManager.offset(
+                from: tcm.documentRange.location,
+                to: elementRange.location)
+            if revealedRowStartOffsets.contains(rowStart) {
+                logLine("DELEGATE", "  → row \(rowStart) revealed; default fragment")
+                return NSTextLayoutFragment(textElement: textElement,
+                                            range: elementRange)
+            }
+            logLine("DELEGATE", "  → returning CellGridFragment (row \(rowStart))")
             return CellGridFragment(textElement: textElement,
-                                    range: textElement.elementRange)
+                                    range: elementRange)
         }
         return NSTextLayoutFragment(textElement: textElement,
                                     range: textElement.elementRange)
@@ -504,6 +631,65 @@ final class LoggingTextView: NSTextView {
                                      turnedOn flag: Bool) {
         logLine("CARET", "drawInsertionPoint rect=\(NSStringFromRect(rect)) on=\(flag) flipped=\(self.isFlipped)")
         super.drawInsertionPoint(in: rect, color: color, turnedOn: flag)
+    }
+
+    /// Tier 6 — double-click in a cell drops the row to source mode.
+    /// Single-click falls through to default NSTextView behavior (which
+    /// uses our CellSelectionDataSource's lineFragmentRangeForPoint
+    /// to route the click into the cell's source range).
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2,
+           let tlm = textLayoutManager,
+           let tcm = tlm.textContentManager {
+            // Convert click location to text-container coords for fragment hit-test.
+            let viewPoint = convert(event.locationInWindow, from: nil)
+            let containerPoint = NSPoint(
+                x: viewPoint.x - textContainerInset.width,
+                y: viewPoint.y - textContainerInset.height)
+            if let frag = tlm.textLayoutFragment(for: containerPoint),
+               frag is CellGridFragment {
+                let rowStart = tlm.offset(
+                    from: tcm.documentRange.location,
+                    to: frag.rangeInElement.location)
+                if let delegate = tlm.delegate as? GridDelegate {
+                    delegate.revealedRowStartOffsets.insert(rowStart)
+                    logLine("UI", "double-click → row \(rowStart) revealed (source mode)")
+                    // Force re-layout so the fragment changes.
+                    if let storage = textStorage {
+                        let r = NSRange(location: 0, length: storage.length)
+                        storage.beginEditing()
+                        storage.edited(.editedAttributes, range: r, changeInLength: 0)
+                        storage.endEditing()
+                    }
+                    tlm.invalidateLayout(for: tcm.documentRange)
+                    tlm.textViewportLayoutController.layoutViewport()
+                    needsDisplay = true
+                }
+                // Don't pass to super — we've handled the gesture.
+                return
+            }
+        }
+        super.mouseDown(with: event)
+    }
+
+    /// On Escape (or click outside any revealed row), un-reveal all rows.
+    /// Spec defers full Escape semantics; the spike treats Escape as
+    /// "reset reveal state" for testability.
+    @objc override func cancelOperation(_ sender: Any?) {
+        guard let tlm = textLayoutManager,
+              let tcm = tlm.textContentManager,
+              let delegate = tlm.delegate as? GridDelegate else { return }
+        delegate.revealedRowStartOffsets.removeAll()
+        logLine("UI", "cancelOperation → un-reveal all rows")
+        if let storage = textStorage {
+            let r = NSRange(location: 0, length: storage.length)
+            storage.beginEditing()
+            storage.edited(.editedAttributes, range: r, changeInLength: 0)
+            storage.endEditing()
+        }
+        tlm.invalidateLayout(for: tcm.documentRange)
+        tlm.textViewportLayoutController.layoutViewport()
+        needsDisplay = true
     }
 
     /// Tier 2.5 — backspace at a cell-start moves caret to the previous
@@ -1247,6 +1433,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         guard let tv = notification.object as? NSTextView, tv === textView else { return }
         let sel = tv.selectedRange()
         logLine("SPIKE", "selection: location=\(sel.location) length=\(sel.length)")
+        // If the selection spans non-zero, force a redraw so per-cell
+        // highlight rects reflect the current range. Caret-only changes
+        // (length 0) can skip the heavy reload.
+        if sel.length > 0 { forceRerender() }
     }
 
     func textDidChange(_ notification: Notification) {

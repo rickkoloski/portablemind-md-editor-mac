@@ -28,12 +28,12 @@ let initialSourceText = "| cell one | cell two |\n| c1 row 2 | c2 row 2 |\n"
 // Fragment geometry. Independent of the source-text's natural CT layout.
 // Cells are flush with the fragment's top edge (y=0) so the line fragment
 // (where NSTextView draws the caret) sits inside the cell vertically.
+// Cells abut horizontally (no visual gap); the inner vertical divider
+// sits at the boundary between cells. Production's TableLayout uses
+// per-column widths; the spike uses a single fixed `cellWidth` for all
+// cells (width sizing isn't what the spike tests).
 let fragmentHeight: CGFloat = 40
-// Cells abut (no visual gap); the inner vertical divider sits at the
-// boundary. Matches production (cells are contiguous, separators are the
-// only inter-cell visual).
-let cell1X: CGFloat = 20
-let cell2X: CGFloat = 340   // = cell1X + cellWidth, no gap
+let firstCellOriginX: CGFloat = 20
 let cellWidth: CGFloat = 320
 let cellContentFontSize: CGFloat = 18
 
@@ -63,12 +63,46 @@ let perCharStride: CGFloat = {
     return ("M" as NSString).size(withAttributes: [.font: font]).width
 }()
 
-// Cell visual rects (in fragment-local coordinates, flipped y).
-var cell1Rect: CGRect {
-    CGRect(x: cell1X, y: 0, width: cellWidth, height: fragmentHeight)
+/// Cell origin x in fragment-local coords for the cell at `index` in
+/// the row. Same width for all cells (spike simplification; production's
+/// TableLayout uses per-column widths derived from content).
+func cellOriginX(forIndex i: Int) -> CGFloat {
+    firstCellOriginX + CGFloat(i) * cellWidth
 }
-var cell2Rect: CGRect {
-    CGRect(x: cell2X, y: 0, width: cellWidth, height: fragmentHeight)
+
+/// Cell rect in fragment-local coords. `cellYOffset` is applied by the
+/// caller in `draw(at:)`.
+func cellRect(forIndex i: Int) -> CGRect {
+    CGRect(x: cellOriginX(forIndex: i), y: 0,
+           width: cellWidth, height: fragmentHeight)
+}
+
+/// Find which cell of `row` contains source `offset`, or `nil` if the
+/// offset is in pipe/whitespace between cells (or before the first
+/// cell, or after the last).
+func cellIndex(forOffset offset: Int, in row: Row) -> Int? {
+    for (idx, cell) in row.cells.enumerated() {
+        if offset >= cell.location && offset <= cell.location + cell.length {
+            return idx
+        }
+    }
+    return nil
+}
+
+/// Find which cell of `row` a click at `pointX` (fragment-local) falls in.
+/// Clicks before the first cell snap to cell 0; clicks past the last
+/// cell snap to the last cell.
+func cellIndex(forPointX pointX: CGFloat, in row: Row) -> Int? {
+    guard !row.cells.isEmpty else { return nil }
+    let lastIndex = row.cells.count - 1
+    if pointX < cellOriginX(forIndex: 0) { return 0 }
+    if pointX >= cellOriginX(forIndex: lastIndex) + cellWidth { return lastIndex }
+    for idx in 0..<row.cells.count {
+        let left = cellOriginX(forIndex: idx)
+        let right = left + cellWidth
+        if pointX >= left && pointX < right { return idx }
+    }
+    return nil
 }
 
 // MARK: - Row + cell parser
@@ -251,100 +285,84 @@ final class CellGridFragment: NSTextLayoutFragment {
         defer { context.restoreGState() }
 
         let dy = point.y + TuningKnobs.cellYOffset
-        let rect1 = cell1Rect.offsetBy(dx: point.x, dy: dy)
-        let rect2 = cell2Rect.offsetBy(dx: point.x, dy: dy)
+        // Per-cell rects (in view coords for this draw pass).
+        let cellViewRects: [CGRect] = (0..<cellRanges.count).map { idx in
+            cellRect(forIndex: idx).offsetBy(dx: point.x, dy: dy)
+        }
+        guard let firstRect = cellViewRects.first,
+              let lastRect = cellViewRects.last else { return }
 
         // Production-matching look (Sources/Editor/Renderer/Tables/TableRowFragment.swift):
         //   outer borders: 1.25pt, labelColor @ 60%
         //   inner dividers: 1pt, separatorColor @ 35%
         //   no cell fills (cell background is the editor background)
-        //   row divider line at the bottom of each body row
         let outerThickness: CGFloat = 1.25
         let innerThickness: CGFloat = 1
         let outerColor = NSColor.labelColor.withAlphaComponent(0.6).cgColor
         let innerColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
 
-        // Combined row rect (cell 1 left edge to cell 2 right edge).
-        let rowRect = rect1.union(rect2)
+        let rowRect = firstRect.union(lastRect)
 
-        // Outer borders (top, bottom, leading, trailing) — drawn around
-        // the whole row's combined bounds.
+        // Outer borders.
         context.setFillColor(outerColor)
-        // Top
         context.fill(CGRect(x: rowRect.origin.x, y: rowRect.origin.y,
                             width: rowRect.width, height: outerThickness))
-        // Bottom
         context.fill(CGRect(x: rowRect.origin.x,
                             y: rowRect.maxY - outerThickness,
                             width: rowRect.width, height: outerThickness))
-        // Leading
         context.fill(CGRect(x: rowRect.origin.x, y: rowRect.origin.y,
                             width: outerThickness, height: rowRect.height))
-        // Trailing
         context.fill(CGRect(x: rowRect.maxX - outerThickness,
                             y: rowRect.origin.y,
                             width: outerThickness, height: rowRect.height))
 
-        // Inter-cell vertical divider (between cell 1's right edge and
-        // cell 2's left edge — drawn at the gap's midpoint).
+        // Inner vertical dividers between adjacent cells.
         context.setFillColor(innerColor)
-        let interX = (rect1.maxX + rect2.minX) / 2 - innerThickness / 2
-        context.fill(CGRect(x: interX, y: rowRect.origin.y,
-                            width: innerThickness, height: rowRect.height))
+        for idx in 0..<(cellViewRects.count - 1) {
+            let interX = (cellViewRects[idx].maxX + cellViewRects[idx + 1].minX) / 2
+                - innerThickness / 2
+            context.fill(CGRect(x: interX, y: rowRect.origin.y,
+                                width: innerThickness, height: rowRect.height))
+        }
 
-        // Selection highlight per-cell. Layered between chrome and text
-        // so highlight appears UNDER the cell content. Cell ranges from
-        // parseCellRanges are ROW-LOCAL (the paragraph's attributedString
-        // resets to offset 0). To intersect with the layout manager's
-        // ABSOLUTE textSelections, we shift cell ranges by this row's
-        // absolute start offset.
+        // Selection highlight per-cell. Cell ranges from parseCellRanges
+        // are ROW-LOCAL (paragraph's attributedString resets to offset 0).
+        // To intersect with the layout manager's ABSOLUTE textSelections,
+        // shift cell ranges by this row's absolute start offset.
         if let tlm = self.textLayoutManager,
            let tcm = tlm.textContentManager {
             let docStart = tcm.documentRange.location
             let rowStart = tlm.offset(from: docStart, to: rangeInElement.location)
-            let cellAbsRanges: [(NSRange, CGFloat, CGRect)] = [
-                (cellRanges.count >= 1
-                    ? NSRange(location: cellRanges[0].location + rowStart,
-                              length: cellRanges[0].length)
-                    : NSRange(),
-                 cell1X, rect1),
-                (cellRanges.count >= 2
-                    ? NSRange(location: cellRanges[1].location + rowStart,
-                              length: cellRanges[1].length)
-                    : NSRange(),
-                 cell2X, rect2)
-            ]
             context.setFillColor(NSColor.selectedTextBackgroundColor.cgColor)
             for selection in tlm.textSelections {
                 for selRange in selection.textRanges {
                     let selStart = tlm.offset(from: docStart, to: selRange.location)
                     let selEnd = tlm.offset(from: docStart, to: selRange.endLocation)
                     if selEnd <= selStart { continue }
-                    for (cellRange, anchorX, cellViewRect) in cellAbsRanges {
-                        guard cellRange.length > 0 || cellRange.location > 0 else { continue }
-                        let cellLo = cellRange.location
-                        let cellHi = cellRange.location + cellRange.length
+                    for (idx, cell) in cellRanges.enumerated() {
+                        let cellLo = cell.location + rowStart
+                        let cellHi = cellLo + cell.length
                         let interStart = max(selStart, cellLo)
                         let interEnd = min(selEnd, cellHi)
                         if interStart >= interEnd { continue }
                         let localStart = interStart - cellLo
                         let localEnd = interEnd - cellLo
+                        let anchorX = cellOriginX(forIndex: idx)
                         let x1 = anchorX + TuningKnobs.caretXOffset
                             + CGFloat(localStart) * perCharStride
                         let x2 = anchorX + TuningKnobs.caretXOffset
                             + CGFloat(localEnd) * perCharStride
-                        let r = CGRect(
-                            x: point.x + x1,
-                            y: cellViewRect.origin.y,
-                            width: x2 - x1,
-                            height: cellViewRect.height)
+                        let r = CGRect(x: point.x + x1,
+                                       y: cellViewRects[idx].origin.y,
+                                       width: x2 - x1,
+                                       height: cellViewRects[idx].height)
                         context.fill(r)
                     }
                 }
             }
         }
 
-        // Cell content text.
+        // Cell content text — loop over all cells.
         let font = NSFont.monospacedSystemFont(ofSize: cellContentFontSize,
                                                weight: .regular)
         let attrs: [NSAttributedString.Key: Any] = [
@@ -357,19 +375,12 @@ final class CellGridFragment: NSTextLayoutFragment {
         NSGraphicsContext.current = gc
 
         let ns = source as NSString
-        // Text draws at a fixed inset; caret X tuning is independent.
-        if cellRanges.count >= 1 {
-            let txt = ns.substring(with: cellRanges[0])
+        for (idx, cell) in cellRanges.enumerated() {
+            guard cell.length > 0 else { continue }
+            let txt = ns.substring(with: cell)
             (txt as NSString).draw(
-                at: CGPoint(x: rect1.origin.x + cellContentXInset,
-                            y: rect1.origin.y + 4),
-                withAttributes: attrs)
-        }
-        if cellRanges.count >= 2 {
-            let txt = ns.substring(with: cellRanges[1])
-            (txt as NSString).draw(
-                at: CGPoint(x: rect2.origin.x + cellContentXInset,
-                            y: rect2.origin.y + 4),
+                at: CGPoint(x: cellViewRects[idx].origin.x + cellContentXInset,
+                            y: cellViewRects[idx].origin.y + 4),
                 withAttributes: attrs)
         }
 
@@ -473,28 +484,35 @@ final class CellDataSource: NSObject, NSTextSelectionDataSource {
     /// cell edges within that row).
     private func caretX(forSourceOffset i: Int, in rows: [Row]) -> CGFloat {
         guard let row = rowContaining(offset: i, in: rows),
-              row.cells.count >= 2 else {
+              !row.cells.isEmpty else {
             return CGFloat(i) * perCharStride
         }
-        let c1 = row.cells[0]
-        let c2 = row.cells[1]
         let pad = TuningKnobs.caretXOffset
 
-        if i < c1.location {
-            return cell1X + pad
+        // Before the first cell → left edge of first cell.
+        if i < row.cells[0].location {
+            return cellOriginX(forIndex: 0) + pad
         }
-        if i <= c1.location + c1.length {
-            let local = i - c1.location
-            return cell1X + pad + CGFloat(local) * perCharStride
+        // Try each cell: if offset is inside (or at) a cell's content
+        // range, compute local offset and map to that cell's anchor.
+        for (idx, cell) in row.cells.enumerated() {
+            let cellEnd = cell.location + cell.length
+            if i <= cellEnd && i >= cell.location {
+                let local = i - cell.location
+                return cellOriginX(forIndex: idx) + pad
+                    + CGFloat(local) * perCharStride
+            }
+            // Between this cell and the next: snap to right edge of THIS cell.
+            if idx + 1 < row.cells.count {
+                let nextStart = row.cells[idx + 1].location
+                if i > cellEnd && i < nextStart {
+                    return cellOriginX(forIndex: idx) + cellWidth - pad
+                }
+            }
         }
-        if i < c2.location {
-            return cell1X + cellWidth - pad
-        }
-        if i <= c2.location + c2.length {
-            let local = i - c2.location
-            return cell2X + pad + CGFloat(local) * perCharStride
-        }
-        return cell2X + cellWidth - pad
+        // After last cell → right edge of last cell.
+        let lastIdx = row.cells.count - 1
+        return cellOriginX(forIndex: lastIdx) + cellWidth - pad
     }
 
     func enumerateCaretOffsetsInLineFragment(
@@ -554,18 +572,21 @@ final class CellDataSource: NSObject, NSTextSelectionDataSource {
         let source = currentSource()
         let rows = parseRows(in: source)
         guard let row = rows.first(where: { $0.range.location == rowStartOffset }),
-              row.cells.count >= 2 else {
+              !row.cells.isEmpty else {
             return tlm.lineFragmentRange(for: point, inContainerAt: location)
         }
-        let c1 = row.cells[0]
-        let c2 = row.cells[1]
+
+        // Pick which cell the click x falls in. Clicks before/after all
+        // cells snap to the first/last cell respectively (handled inside
+        // cellIndex(forPointX:in:)).
+        guard let cellIdx = cellIndex(forPointX: point.x, in: row) else {
+            return tlm.lineFragmentRange(for: point, inContainerAt: location)
+        }
+        let targetRange = row.cells[cellIdx]
+
+        logLine("CELL-DS", "lfr for (\(point.x), \(point.y)) row=\(row.rowIndex) cell=\(cellIdx) of \(row.cells.count)")
 
         let docStart = tlm.documentRange.location
-
-        let midX = (cell1Rect.maxX + cell2Rect.minX) / 2
-        let targetRange: NSRange = (point.x < midX) ? c1 : c2
-        logLine("CELL-DS", "lfr for (\(point.x), \(point.y)) row=\(row.rowIndex) (via fragment hit-test) midX=\(midX) → \(NSEqualRanges(targetRange, c1) ? "cell 1" : "cell 2")")
-
         guard let start = tlm.location(docStart, offsetBy: targetRange.location),
               let end = tlm.location(start, offsetBy: targetRange.length + 1)
         else { return tlm.lineFragmentRange(for: point, inContainerAt: location) }
@@ -633,6 +654,50 @@ final class LoggingTextView: NSTextView {
         super.drawInsertionPoint(in: rect, color: color, turnedOn: flag)
     }
 
+    /// Snap caret to a valid in-cell position. Called after the click
+    /// is routed by NSTextView. Empty cells (length 0) and inter-cell
+    /// gaps don't have a "preferred" caret offset that NSTextView's
+    /// hit-test honors via NSTextRange semantics — so when the resulting
+    /// selection lands outside any cell's content range, snap to the
+    /// nearest valid in-cell caret position.
+    private func snapCaretToCellContent() {
+        let sel = selectedRange()
+        if sel.length > 0 { return }
+        guard let storage = textStorage else { return }
+        let source = storage.string
+        let rows = parseRows(in: source)
+        guard let row = rowContaining(offset: sel.location, in: rows),
+              !row.cells.isEmpty else { return }
+
+        // "Inside cell" = offset in [cell.start, cell.start + cell.length].
+        let inAnyCell = row.cells.contains { cell in
+            sel.location >= cell.location
+                && sel.location <= cell.location + cell.length
+        }
+        if inAnyCell { return }
+
+        // Find nearest cell-content offset by source distance. Prefer
+        // earlier offsets on tie so left-of-pipe clicks snap to "end of
+        // previous cell" rather than "start of next cell" (matches
+        // intuition for clicks at cell boundaries).
+        var best = sel.location
+        var bestDistance = Int.max
+        for cell in row.cells {
+            let candidates = [cell.location, cell.location + cell.length]
+            for c in candidates {
+                let d = abs(sel.location - c)
+                if d < bestDistance {
+                    bestDistance = d
+                    best = c
+                }
+            }
+        }
+        if best != sel.location {
+            logLine("UI", "snapCaretToCellContent: \(sel.location) → \(best)")
+            setSelectedRange(NSRange(location: best, length: 0))
+        }
+    }
+
     /// Tier 6 — double-click in a cell drops the row to source mode.
     /// Single-click falls through to default NSTextView behavior (which
     /// uses our CellSelectionDataSource's lineFragmentRangeForPoint
@@ -670,6 +735,9 @@ final class LoggingTextView: NSTextView {
             }
         }
         super.mouseDown(with: event)
+        // Single-click → snap caret to cell content if it landed in
+        // a pipe/whitespace/empty-cell-gap region.
+        snapCaretToCellContent()
     }
 
     /// On Escape (or click outside any revealed row), un-reveal all rows.
@@ -692,49 +760,47 @@ final class LoggingTextView: NSTextView {
         needsDisplay = true
     }
 
-    /// Tier 2.5 — backspace at a cell-start moves caret to the previous
-    /// cell's end (within the same row) instead of deleting the pipe.
-    /// Multi-row: at cell-1 start, jump to previous row's cell-2 end
-    /// (cross-row, non-destructive).
+    /// Backspace at a cell's content-start moves caret to the previous
+    /// cell's content-end (within the same row, or previous row's last
+    /// cell if at first cell of row). Non-destructive cross-cell.
     override func deleteBackward(_ sender: Any?) {
         let sel = selectedRange()
         if sel.length == 0, let storage = textStorage {
             let source = storage.string
             let rows = parseRows(in: source)
             if let row = rowContaining(offset: sel.location, in: rows),
-               row.cells.count >= 2 {
-                let c1 = row.cells[0]
-                let c2 = row.cells[1]
-                // Caret at start of cell 2 → jump to end of cell 1 (same row).
-                if sel.location == c2.location {
-                    let prevEnd = c1.location + c1.length
-                    logLine("UI", "backspace at row-\(row.rowIndex) cell-2 start → row-\(row.rowIndex) cell-1 end (offset \(prevEnd))")
-                    setSelectedRange(NSRange(location: prevEnd, length: 0))
-                    return
-                }
-                // Caret at start of cell 1 → jump to previous row's cell-2 end,
-                // or line start if this is the first row.
-                if sel.location == c1.location {
-                    if row.rowIndex > 0,
-                       row.rowIndex - 1 < rows.count,
-                       let prevRowCells = rows[row.rowIndex - 1].cells.last {
-                        let prevEnd = prevRowCells.location + prevRowCells.length
-                        logLine("UI", "backspace at row-\(row.rowIndex) cell-1 start → row-\(row.rowIndex - 1) last-cell end (offset \(prevEnd))")
+               !row.cells.isEmpty {
+                // Find which cell-start the caret is at, if any.
+                if let atStartIdx = row.cells.firstIndex(where: { $0.location == sel.location }) {
+                    if atStartIdx > 0 {
+                        // Previous cell in same row.
+                        let prev = row.cells[atStartIdx - 1]
+                        let prevEnd = prev.location + prev.length
+                        logLine("UI", "backspace at row-\(row.rowIndex) cell-\(atStartIdx) start → cell-\(atStartIdx - 1) end (\(prevEnd))")
                         setSelectedRange(NSRange(location: prevEnd, length: 0))
+                        return
                     } else {
-                        logLine("UI", "backspace at row-0 cell-1 start → document start")
-                        setSelectedRange(NSRange(location: 0, length: 0))
+                        // First cell of this row → previous row's last cell end.
+                        if row.rowIndex > 0,
+                           row.rowIndex - 1 < rows.count,
+                           let prevRowLast = rows[row.rowIndex - 1].cells.last {
+                            let prevEnd = prevRowLast.location + prevRowLast.length
+                            logLine("UI", "backspace at row-\(row.rowIndex) cell-0 start → row-\(row.rowIndex - 1) last-cell end (\(prevEnd))")
+                            setSelectedRange(NSRange(location: prevEnd, length: 0))
+                        } else {
+                            logLine("UI", "backspace at row-0 cell-0 start → document start")
+                            setSelectedRange(NSRange(location: 0, length: 0))
+                        }
+                        return
                     }
-                    return
                 }
             }
         }
         super.deleteBackward(sender)
     }
 
-    /// Tier 2.4 arrow nav + Tier 2.6 Tab: all driven by current row's cells.
+    /// Arrow / Tab navigation across N cells per row.
     override func keyDown(with event: NSEvent) {
-        logLine("LTV", "keyDown keyCode=\(event.keyCode) selRange=\(selectedRange().location)+\(selectedRange().length)")
         let sel = selectedRange()
         guard sel.length == 0, let storage = textStorage else {
             super.keyDown(with: event)
@@ -742,17 +808,11 @@ final class LoggingTextView: NSTextView {
         }
         let source = storage.string
         let rows = parseRows(in: source)
-        let rowFound = rowContaining(offset: sel.location, in: rows)
-        logLine("LTV", "  loc=\(sel.location) row=\(rowFound?.rowIndex ?? -1) rowsCount=\(rows.count)")
-        guard let row = rowFound,
-              row.cells.count >= 2 else {
+        guard let row = rowContaining(offset: sel.location, in: rows),
+              !row.cells.isEmpty else {
             super.keyDown(with: event)
             return
         }
-        let c1 = row.cells[0]
-        let c2 = row.cells[1]
-        let c1End = c1.location + c1.length
-        let c2End = c2.location + c2.length
         let loc = sel.location
 
         let KEY_TAB: UInt16 = 48
@@ -762,71 +822,81 @@ final class LoggingTextView: NSTextView {
         switch event.keyCode {
         case KEY_TAB:
             let shift = event.modifierFlags.contains(.shift)
-            let inCell1 = loc >= c1.location && loc <= c1End
+            // Find which cell the caret is "in" (or before).
+            let curCellIdx = row.cells.firstIndex { cell in
+                loc >= cell.location && loc <= cell.location + cell.length
+            } ?? 0
             let target: Int
             if shift {
-                if inCell1 {
-                    // At first cell of this row; Shift+Tab goes to previous row's last cell end, or stays.
-                    if row.rowIndex > 0, let prev = rows[row.rowIndex - 1].cells.last {
-                        target = prev.location + prev.length
-                    } else {
-                        target = c1.location
-                    }
+                if curCellIdx > 0 {
+                    let prev = row.cells[curCellIdx - 1]
+                    target = prev.location + prev.length
+                } else if row.rowIndex > 0,
+                          let prevRowLast = rows[row.rowIndex - 1].cells.last {
+                    target = prevRowLast.location + prevRowLast.length
                 } else {
-                    target = c1End
+                    target = row.cells[0].location
                 }
             } else {
-                if inCell1 {
-                    target = c2.location
+                if curCellIdx + 1 < row.cells.count {
+                    target = row.cells[curCellIdx + 1].location
+                } else if row.rowIndex + 1 < rows.count,
+                          let nextFirst = rows[row.rowIndex + 1].cells.first {
+                    target = nextFirst.location
                 } else {
-                    // At last cell of this row; Tab goes to next row's first cell start, or stays.
-                    if row.rowIndex + 1 < rows.count, let next = rows[row.rowIndex + 1].cells.first {
-                        target = next.location
-                    } else {
-                        target = c2End
-                    }
+                    let last = row.cells[row.cells.count - 1]
+                    target = last.location + last.length
                 }
             }
-            logLine("UI", "Tab shift=\(shift) row=\(row.rowIndex) loc=\(loc) → \(target)")
+            logLine("UI", "Tab shift=\(shift) row=\(row.rowIndex) cell=\(curCellIdx) → \(target)")
             setSelectedRange(NSRange(location: target, length: 0))
             return
 
         case KEY_RIGHT:
-            if loc == c1End {
-                logLine("UI", "→ row=\(row.rowIndex) cell-1 end → cell-2 start (\(c2.location))")
-                setSelectedRange(NSRange(location: c2.location, length: 0))
-                return
-            }
-            if loc == c2End {
-                // Last cell of this row. Move to next row's first cell start if there is one.
-                if row.rowIndex + 1 < rows.count,
-                   let next = rows[row.rowIndex + 1].cells.first {
-                    logLine("UI", "→ row=\(row.rowIndex) cell-2 end → row=\(row.rowIndex + 1) cell-1 start (\(next.location))")
-                    setSelectedRange(NSRange(location: next.location, length: 0))
-                } else {
-                    logLine("UI", "→ at last-row cell-2 end → ignore (boundary)")
+            // Are we at any cell's content-end?
+            for (idx, cell) in row.cells.enumerated() {
+                let cellEnd = cell.location + cell.length
+                if loc == cellEnd {
+                    if idx + 1 < row.cells.count {
+                        let next = row.cells[idx + 1]
+                        logLine("UI", "→ row=\(row.rowIndex) cell-\(idx) end → cell-\(idx + 1) start (\(next.location))")
+                        setSelectedRange(NSRange(location: next.location, length: 0))
+                        return
+                    } else if row.rowIndex + 1 < rows.count,
+                              let nextFirst = rows[row.rowIndex + 1].cells.first {
+                        logLine("UI", "→ row=\(row.rowIndex) last-cell end → row=\(row.rowIndex + 1) cell-0 start (\(nextFirst.location))")
+                        setSelectedRange(NSRange(location: nextFirst.location, length: 0))
+                        return
+                    } else {
+                        logLine("UI", "→ at last-row last-cell end → ignore")
+                        return
+                    }
                 }
-                return
             }
             super.keyDown(with: event)
             return
 
         case KEY_LEFT:
-            if loc == c2.location {
-                logLine("UI", "← row=\(row.rowIndex) cell-2 start → cell-1 end (\(c1End))")
-                setSelectedRange(NSRange(location: c1End, length: 0))
-                return
-            }
-            if loc == c1.location {
-                // First cell of this row. Move to previous row's last cell end if any.
-                if row.rowIndex > 0, let prev = rows[row.rowIndex - 1].cells.last {
-                    let prevEnd = prev.location + prev.length
-                    logLine("UI", "← row=\(row.rowIndex) cell-1 start → row=\(row.rowIndex - 1) last-cell end (\(prevEnd))")
-                    setSelectedRange(NSRange(location: prevEnd, length: 0))
-                } else {
-                    logLine("UI", "← at row-0 cell-1 start → ignore (boundary)")
+            // Are we at any cell's content-start?
+            for (idx, cell) in row.cells.enumerated() {
+                if loc == cell.location {
+                    if idx > 0 {
+                        let prev = row.cells[idx - 1]
+                        let prevEnd = prev.location + prev.length
+                        logLine("UI", "← row=\(row.rowIndex) cell-\(idx) start → cell-\(idx - 1) end (\(prevEnd))")
+                        setSelectedRange(NSRange(location: prevEnd, length: 0))
+                        return
+                    } else if row.rowIndex > 0,
+                              let prevLast = rows[row.rowIndex - 1].cells.last {
+                        let prevEnd = prevLast.location + prevLast.length
+                        logLine("UI", "← row=\(row.rowIndex) cell-0 start → row=\(row.rowIndex - 1) last-cell end (\(prevEnd))")
+                        setSelectedRange(NSRange(location: prevEnd, length: 0))
+                        return
+                    } else {
+                        logLine("UI", "← at row-0 cell-0 start → ignore")
+                        return
+                    }
                 }
-                return
             }
             super.keyDown(with: event)
             return
@@ -836,30 +906,32 @@ final class LoggingTextView: NSTextView {
         }
     }
 
-    /// Delete at cell-end jumps to the next cell's start (same row), or
-    /// to next row's first cell if we're at last cell.
+    /// Delete at cell-content-end jumps to next cell's start (same row),
+    /// or to next row's first cell if at last cell.
     override func deleteForward(_ sender: Any?) {
         let sel = selectedRange()
         if sel.length == 0, let storage = textStorage {
             let source = storage.string
             let rows = parseRows(in: source)
             if let row = rowContaining(offset: sel.location, in: rows),
-               row.cells.count >= 2 {
-                let c1 = row.cells[0]
-                let c2 = row.cells[1]
-                if sel.location == c1.location + c1.length {
-                    logLine("UI", "delete at row-\(row.rowIndex) cell-1 end → row-\(row.rowIndex) cell-2 start (\(c2.location))")
-                    setSelectedRange(NSRange(location: c2.location, length: 0))
-                    return
-                }
-                if sel.location == c2.location + c2.length {
-                    if row.rowIndex + 1 < rows.count, let next = rows[row.rowIndex + 1].cells.first {
-                        logLine("UI", "delete at row-\(row.rowIndex) cell-2 end → row-\(row.rowIndex + 1) cell-1 start (\(next.location))")
+               !row.cells.isEmpty {
+                if let atEndIdx = row.cells.firstIndex(where: {
+                    $0.location + $0.length == sel.location
+                }) {
+                    if atEndIdx + 1 < row.cells.count {
+                        let next = row.cells[atEndIdx + 1]
+                        logLine("UI", "delete at row-\(row.rowIndex) cell-\(atEndIdx) end → cell-\(atEndIdx + 1) start (\(next.location))")
                         setSelectedRange(NSRange(location: next.location, length: 0))
+                        return
+                    } else if row.rowIndex + 1 < rows.count,
+                              let nextFirst = rows[row.rowIndex + 1].cells.first {
+                        logLine("UI", "delete at row-\(row.rowIndex) last-cell end → row-\(row.rowIndex + 1) cell-0 start (\(nextFirst.location))")
+                        setSelectedRange(NSRange(location: nextFirst.location, length: 0))
+                        return
                     } else {
-                        logLine("UI", "delete at last-row cell-2 end → ignore (boundary)")
+                        logLine("UI", "delete at last-row last-cell end → ignore")
+                        return
                     }
-                    return
                 }
             }
         }
@@ -962,13 +1034,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         ) { frag in
             guard frag is CellGridFragment else { return true }
             let fragFrame = frag.layoutFragmentFrame
-            // Per-cell rects in FRAGMENT coords (cell1Rect / cell2Rect), with
-            // cellYOffset applied (same transform as draw).
+            // Number of cells to expose: count parsed cells in this row.
+            let rowSource = (frag.textElement as? NSTextParagraph)?
+                .attributedString.string ?? ""
+            let parsed = parseCellRanges(in: rowSource)
             let dy = TuningKnobs.cellYOffset
-            let cellRectsInFragment: [(String, CGRect)] = [
-                ("cell-1", cell1Rect.offsetBy(dx: 0, dy: dy)),
-                ("cell-2", cell2Rect.offsetBy(dx: 0, dy: dy))
-            ]
+            let cellRectsInFragment: [(String, CGRect)] = parsed.indices.map { i in
+                ("cell-\(i + 1)", cellRect(forIndex: i).offsetBy(dx: 0, dy: dy))
+            }
             for (label, cellRect) in cellRectsInFragment {
                 // Fragment frame origin + cell-in-fragment → text-container coords.
                 let containerRect = CGRect(
@@ -1084,8 +1157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
                 "perCharStride": perCharStride
             ],
             "cellAnchors": [
-                "cell1X": cell1X,
-                "cell2X": cell2X,
+                "firstCellOriginX": firstCellOriginX,
                 "cellWidth": cellWidth,
                 "fragmentHeight": fragmentHeight
             ],

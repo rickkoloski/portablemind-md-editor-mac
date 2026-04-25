@@ -57,12 +57,65 @@ final class TableRowFragment: NSTextLayoutFragment {
             drawSeparator(in: frame, context: context)
             drawVerticalDividers(in: frame, context: context)
         case .header, .body:
+            // Layer order: selection highlight (under text) → cells
+            // (background tint + text) → grid lines on top.
+            drawSelectionHighlights(in: frame, context: context)
             drawCells(in: frame, context: context)
             drawVerticalDividers(in: frame, context: context)
             drawRowDivider(in: frame, context: context)
         }
         if attachment.isFirstRow { drawTopBorder(in: frame, context: context) }
         if attachment.isLastRow { drawBottomBorder(in: frame, context: context) }
+    }
+
+    /// D12 step 4 — paint selection highlights per cell.
+    /// Intersects the layout manager's textSelections with each cell's
+    /// source range and fills the corresponding cell-relative span
+    /// with `selectedTextBackgroundColor`. Pipe / inter-cell whitespace
+    /// is NOT highlighted (matches Word/Docs cell-selection behavior).
+    private func drawSelectionHighlights(in frame: CGRect, context: CGContext) {
+        guard let idx = attachment.cellContentIndex,
+              idx < attachment.layout.cellRanges.count,
+              let tlm = textLayoutManager,
+              let tcm = tlm.textContentManager
+        else { return }
+        let cells = attachment.layout.cellRanges[idx]
+        guard !cells.isEmpty,
+              attachment.layout.columnLeadingX.count >= cells.count
+        else { return }
+
+        let docStart = tcm.documentRange.location
+        let stride = ("M" as NSString).size(
+            withAttributes: [.font: attachment.layout.bodyFont]
+        ).width
+        let layout = attachment.layout
+
+        context.setFillColor(NSColor.selectedTextBackgroundColor.cgColor)
+        for selection in tlm.textSelections {
+            for selRange in selection.textRanges {
+                let selStart = tlm.offset(from: docStart, to: selRange.location)
+                let selEnd = tlm.offset(from: docStart, to: selRange.endLocation)
+                if selEnd <= selStart { continue }
+                for (col, cell) in cells.enumerated() where col < layout.columnLeadingX.count {
+                    let cellLo = cell.location
+                    let cellHi = cell.location + cell.length
+                    let interStart = max(selStart, cellLo)
+                    let interEnd = min(selEnd, cellHi)
+                    if interStart >= interEnd { continue }
+                    let localStart = interStart - cellLo
+                    let localEnd = interEnd - cellLo
+                    let anchorX = frame.origin.x + layout.columnLeadingX[col]
+                    let x1 = anchorX + CGFloat(localStart) * stride
+                    let x2 = anchorX + CGFloat(localEnd) * stride
+                    let r = CGRect(
+                        x: x1,
+                        y: frame.origin.y,
+                        width: x2 - x1,
+                        height: frame.height)
+                    context.fill(r)
+                }
+            }
+        }
     }
 
     // MARK: - Drawing

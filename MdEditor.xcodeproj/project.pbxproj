@@ -23,6 +23,7 @@
 		32F266F823BC3F25F489BA43 /* InlineCodeMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38B8648E855C0852B13DBD8B /* InlineCodeMutation.swift */; };
 		37852AF9969A7148A174080D /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CD85D99BA4A020FC41BBAF /* WorkspaceView.swift */; };
 		38123D3E013026B5BB41A264 /* EditorDispatcherRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 770FBECB95BF5127256B338C /* EditorDispatcherRegistry.swift */; };
+		3CE55B77E9B4356FF7DFAD93 /* HarnessCommandPoller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF3F965AD0AEC856FA38062 /* HarnessCommandPoller.swift */; };
 		3F6B21F07D4279396B7F1D66 /* MutationKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B038FAE2D09EC30C229AB152 /* MutationKeyboardTests.swift */; };
 		4BB6F23633E3B1073C4D98C5 /* MutationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E5D9317F80A9FFE42F4FCC /* MutationResolver.swift */; };
 		4BE45061582C8A8E09F25BC0 /* EmptyEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03D8CF6CE596C7EA09CBC7D /* EmptyEditorView.swift */; };
@@ -65,6 +66,7 @@
 		C4B09F580815ABDDE420685F /* LaunchSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BA7C352C4BEA557B5E5A07A /* LaunchSmokeTests.swift */; };
 		D2E5C80D28F7F100982EB876 /* BoldMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E1E708BEBADEEC6BBCD3E2 /* BoldMutation.swift */; };
 		D87846C8B4A004B93B646AB0 /* SetViewCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408E9C472E809997158FDC0B /* SetViewCommand.swift */; };
+		DD8BABA54508A0F3656EA66B /* HarnessActiveSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5AC25DB3CFE00FB09F46C3B /* HarnessActiveSink.swift */; };
 		EB39075ABB7FA96955213606 /* FolderTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B5DFD3FDD072F772FC2A07 /* FolderTreeView.swift */; };
 		EE45FB6087116ECA1BB182BE /* MutationHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C80DE85975844E9F6898D021 /* MutationHelpers.swift */; };
 		F8421E4664863007B6773E37 /* EditorDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D086F044F795F5BE8F33D4 /* EditorDocument.swift */; };
@@ -110,6 +112,7 @@
 		736D7D2A74FC7C773CBEDC6B /* TabStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabStore.swift; sourceTree = "<group>"; };
 		770FBECB95BF5127256B338C /* EditorDispatcherRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorDispatcherRegistry.swift; sourceTree = "<group>"; };
 		7BE760CB7674EC82B2EEE54F /* CursorLineTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorLineTracker.swift; sourceTree = "<group>"; };
+		7EF3F965AD0AEC856FA38062 /* HarnessCommandPoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessCommandPoller.swift; sourceTree = "<group>"; };
 		8133DDE032155B87C4A2650B /* ItalicMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItalicMutation.swift; sourceTree = "<group>"; };
 		87B7D9987868179EBCB7AF10 /* MarkdownDocumentType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocumentType.swift; sourceTree = "<group>"; };
 		8B0D75F7987F596BA98D2F95 /* LinkMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkMutation.swift; sourceTree = "<group>"; };
@@ -133,6 +136,7 @@
 		C80DE85975844E9F6898D021 /* MutationHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationHelpers.swift; sourceTree = "<group>"; };
 		C8B74950ACAAA2D21C1E3B09 /* StringLineLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringLineLocation.swift; sourceTree = "<group>"; };
 		D0B5DFD3FDD072F772FC2A07 /* FolderTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderTreeView.swift; sourceTree = "<group>"; };
+		D5AC25DB3CFE00FB09F46C3B /* HarnessActiveSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessActiveSink.swift; sourceTree = "<group>"; };
 		DA53ED5FC52B03E72A289E5B /* EditorFocusTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorFocusTarget.swift; sourceTree = "<group>"; };
 		DABB663FF217226C1D9A2A68 /* HeadingToolbarMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadingToolbarMenu.swift; sourceTree = "<group>"; };
 		E332B869BD3500F673ADDA2C /* MutationPrimitive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationPrimitive.swift; sourceTree = "<group>"; };
@@ -190,6 +194,7 @@
 				55720A84938DD7C2BD1D1AD1 /* Accessibility */,
 				48A0D61F9E02D74CF3F26C6A /* App */,
 				3F707691A3FD0678050A401E /* CommandSurface */,
+				B238D53CD0FF5E60E8D9BD2C /* Debug */,
 				A79F895DB7523BCFEE40DB4E /* DocumentTypes */,
 				FFCAE49D5A412D3DFC3705C9 /* Editor */,
 				962167C01B0A078F57C10DCD /* Files */,
@@ -320,6 +325,15 @@
 				5C1ABD3965302A0DADDB34BE /* ToolbarButton.swift */,
 			);
 			path = Toolbar;
+			sourceTree = "<group>";
+		};
+		B238D53CD0FF5E60E8D9BD2C /* Debug */ = {
+			isa = PBXGroup;
+			children = (
+				D5AC25DB3CFE00FB09F46C3B /* HarnessActiveSink.swift */,
+				7EF3F965AD0AEC856FA38062 /* HarnessCommandPoller.swift */,
+			);
+			path = Debug;
 			sourceTree = "<group>";
 		};
 		B68D3C11A05DF83D7CB5503D /* Keyboard */ = {
@@ -508,6 +522,8 @@
 				81623B9653112FC0421681F8 /* FolderTreeModel.swift in Sources */,
 				EB39075ABB7FA96955213606 /* FolderTreeView.swift in Sources */,
 				15745820A86D52F1E766A371 /* FolderTreeWatcher.swift in Sources */,
+				DD8BABA54508A0F3656EA66B /* HarnessActiveSink.swift in Sources */,
+				3CE55B77E9B4356FF7DFAD93 /* HarnessCommandPoller.swift in Sources */,
 				7FEB015C81AC6829AC9F3050 /* HeadingMutations.swift in Sources */,
 				5611141BE52339A49A45837B /* HeadingToolbarMenu.swift in Sources */,
 				32F266F823BC3F25F489BA43 /* InlineCodeMutation.swift in Sources */,

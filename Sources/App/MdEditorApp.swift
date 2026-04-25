@@ -25,6 +25,12 @@ struct MdEditorApp: App {
                 })
                 .onAppear {
                     workspace.restoreFromBookmarks()
+                    // TEST-HARNESS: start the debug command-file poller
+                    // so external drivers can inspect / drive editor
+                    // state. Compiled out of release builds.
+                    #if DEBUG
+                    HarnessCommandPoller.shared.start()
+                    #endif
                 }
                 .onOpenURL { url in
                     URLSchemeHandler.handle(url, workspace: workspace)

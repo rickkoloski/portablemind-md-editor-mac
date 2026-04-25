@@ -72,6 +72,13 @@ struct EditorContainer: NSViewRepresentable {
         // global toolbar / menu commands route here.
         EditorDispatcherRegistry.shared.register(for: textView)
 
+        // TEST-HARNESS: register this text view with the debug harness
+        // sink so the autonomous test driver can inspect / drive editor
+        // state. Compiled out of release builds.
+        #if DEBUG
+        HarnessActiveSink.shared.register(textView)
+        #endif
+
         scroll.documentView = textView
         syncLineNumberRuler(in: scroll, textView: textView,
                             coordinator: context.coordinator)

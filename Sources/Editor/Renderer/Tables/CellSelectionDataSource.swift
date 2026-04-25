@@ -118,6 +118,7 @@ final class CellSelectionDataSource: NSObject, NSTextSelectionDataSource {
             if stop.boolValue { return }
             guard let loc = tlm.location(docStart, offsetBy: i) else { continue }
             let x = caretX(forSourceOffset: i,
+                           rowIdx: rowIdx,
                            cells: cells,
                            layout: layout)
             block(x, loc, true, &stop)
@@ -226,16 +227,17 @@ final class CellSelectionDataSource: NSObject, NSTextSelectionDataSource {
     }
 
     /// Map a source offset within a table row to a caret x position
-    /// using the row's TableLayout column geometry. Source offsets
-    /// before/between/after cells collapse to cell edges so the caret
-    /// has a sensible visual home.
+    /// using the row's TableLayout column geometry + per-cell CT
+    /// glyph-advance-aware offsets. Source offsets before/between/
+    /// after cells collapse to cell edges so the caret has a sensible
+    /// visual home.
     private func caretX(forSourceOffset i: Int,
+                        rowIdx: Int,
                         cells: [NSRange],
                         layout: TableLayout) -> CGFloat {
         guard !cells.isEmpty,
               !layout.columnLeadingX.isEmpty,
               !layout.contentWidths.isEmpty else { return 0 }
-        let stride = advanceStride(layout: layout)
 
         if i < cells[0].location {
             return layout.columnLeadingX[0]
@@ -244,7 +246,10 @@ final class CellSelectionDataSource: NSObject, NSTextSelectionDataSource {
             let cellEnd = cell.location + cell.length
             if i >= cell.location && i <= cellEnd, idx < layout.columnLeadingX.count {
                 let local = i - cell.location
-                return layout.columnLeadingX[idx] + CGFloat(local) * stride
+                return layout.columnLeadingX[idx]
+                    + layout.charXOffset(rowIdx: rowIdx,
+                                         colIdx: idx,
+                                         localOffset: local)
             }
             if idx + 1 < cells.count, idx < layout.columnTrailingX.count {
                 let nextStart = cells[idx + 1].location
@@ -258,16 +263,6 @@ final class CellSelectionDataSource: NSObject, NSTextSelectionDataSource {
             return layout.columnTrailingX[lastIdx]
         }
         return layout.columnLeadingX[0]
-    }
-
-    /// Per-character advance width inside a cell. Simple "M" stride
-    /// against the layout's body font. Adequate for monospaced cell
-    /// content; D12 step 6 (font-metric tuning) refines this for
-    /// proportional fonts via CT glyph-advance-aware mapping.
-    private func advanceStride(layout: TableLayout) -> CGFloat {
-        ("M" as NSString).size(
-            withAttributes: [.font: layout.bodyFont]
-        ).width
     }
 
     /// Map a click x-coordinate (fragment-local) to a column index in

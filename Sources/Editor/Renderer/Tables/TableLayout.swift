@@ -118,6 +118,31 @@ final class TableLayout {
     }
 }
 
+// MARK: - Per-character x offset within a cell
+
+extension TableLayout {
+    /// Pixel-accurate horizontal offset of the caret at `localOffset`
+    /// within the cell at `[rowIdx][colIdx]`. The returned value is in
+    /// CELL-CONTENT-LOCAL coords (0 = leading edge of cell content);
+    /// the caller adds `columnLeadingX[colIdx]` to get fragment-local x.
+    ///
+    /// Uses CT layout of the pre-rendered cell content so positions
+    /// are correct for proportional fonts and Unicode characters with
+    /// non-uniform glyph advance widths. Cell content is small (a few
+    /// dozen chars typically), so the per-call CTLine construction is
+    /// negligible cost.
+    func charXOffset(rowIdx: Int, colIdx: Int, localOffset: Int) -> CGFloat {
+        guard rowIdx < cellContentPerRow.count,
+              colIdx < cellContentPerRow[rowIdx].count
+        else { return 0 }
+        let cell = cellContentPerRow[rowIdx][colIdx]
+        guard cell.length > 0 else { return 0 }
+        let line = CTLineCreateWithAttributedString(cell)
+        let clamped = max(0, min(localOffset, cell.length))
+        return CTLineGetOffsetForStringIndex(line, clamped, nil)
+    }
+}
+
 // MARK: - Cell-range parsing
 
 extension TableLayout {

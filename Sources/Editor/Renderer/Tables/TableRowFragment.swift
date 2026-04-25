@@ -85,9 +85,6 @@ final class TableRowFragment: NSTextLayoutFragment {
         else { return }
 
         let docStart = tcm.documentRange.location
-        let stride = ("M" as NSString).size(
-            withAttributes: [.font: attachment.layout.bodyFont]
-        ).width
         let layout = attachment.layout
 
         context.setFillColor(NSColor.selectedTextBackgroundColor.cgColor)
@@ -105,8 +102,10 @@ final class TableRowFragment: NSTextLayoutFragment {
                     let localStart = interStart - cellLo
                     let localEnd = interEnd - cellLo
                     let anchorX = frame.origin.x + layout.columnLeadingX[col]
-                    let x1 = anchorX + CGFloat(localStart) * stride
-                    let x2 = anchorX + CGFloat(localEnd) * stride
+                    let x1 = anchorX + layout.charXOffset(
+                        rowIdx: idx, colIdx: col, localOffset: localStart)
+                    let x2 = anchorX + layout.charXOffset(
+                        rowIdx: idx, colIdx: col, localOffset: localEnd)
                     let r = CGRect(
                         x: x1,
                         y: frame.origin.y,

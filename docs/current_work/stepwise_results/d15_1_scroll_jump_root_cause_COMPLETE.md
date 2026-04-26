@@ -128,6 +128,8 @@ CD-driven decision after D15.1's belt-and-suspenders fixes still didn't fully re
 
 **TK2 fallback reference** (CD-flagged 2026-04-26): https://github.com/SuperSwiftMarkup/SuperSwiftMarkdownPrototype — author claims to have rendered/edited markdown tables in TextKit 2. Prototype, NOT a released product, so apply healthy skepticism. Status: not consulted before the D16 decision; held as a fallback IF the TK1 spike reveals dealbreakers and we have to return to TK2. Do NOT pre-emptively port their patterns into our code; treat as a known second option, not a first option.
 
+CD follow-up (2026-04-26): the SSMP repo's issues list shows symptoms eerily similar to the bugs we hit in D8–D15.1 — and they've been open without resolution. That's stronger evidence the TK2 + custom-fragment-tables shape has unfixed-in-the-wild problems, not just usage errors on our side. We're not the only ones who couldn't tame this. Reinforces the TK1 spike as the more deterministic next step; weakens SSMP's value as a fallback (their unfixed issues land us back in the same trap).
+
 ---
 
 ## Artifacts that survive the pivot

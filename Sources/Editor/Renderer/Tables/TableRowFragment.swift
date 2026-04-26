@@ -101,19 +101,83 @@ final class TableRowFragment: NSTextLayoutFragment {
                     if interStart >= interEnd { continue }
                     let localStart = interStart - cellLo
                     let localEnd = interEnd - cellLo
-                    let anchorX = frame.origin.x + layout.columnLeadingX[col]
-                    let x1 = anchorX + layout.charXOffset(
-                        rowIdx: idx, colIdx: col, localOffset: localStart)
-                    let x2 = anchorX + layout.charXOffset(
-                        rowIdx: idx, colIdx: col, localOffset: localEnd)
-                    let r = CGRect(
-                        x: x1,
-                        y: frame.origin.y,
-                        width: x2 - x1,
-                        height: frame.height)
-                    context.fill(r)
+                    drawSelectionHighlight(
+                        rowIdx: idx,
+                        colIdx: col,
+                        localStart: localStart,
+                        localEnd: localEnd,
+                        in: frame,
+                        layout: layout,
+                        context: context)
                 }
             }
+        }
+    }
+
+    /// Paint per-visual-line selection highlight rects within a cell.
+    /// For wrapped cell content (multiple visual lines), the selection
+    /// gets one rect per intersecting visual line at that line's actual
+    /// y + height — not a single rect spanning the whole cell.
+    private func drawSelectionHighlight(rowIdx: Int,
+                                        colIdx: Int,
+                                        localStart: Int,
+                                        localEnd: Int,
+                                        in frame: CGRect,
+                                        layout: TableLayout,
+                                        context: CGContext) {
+        guard rowIdx < layout.cellContentPerRow.count,
+              colIdx < layout.cellContentPerRow[rowIdx].count,
+              colIdx < layout.contentWidths.count,
+              colIdx < layout.columnLeadingX.count
+        else { return }
+        let cellAS = layout.cellContentPerRow[rowIdx][colIdx]
+        guard cellAS.length > 0 else { return }
+        let columnWidth = layout.contentWidths[colIdx]
+        let cellContentLeft = frame.origin.x + layout.columnLeadingX[colIdx]
+        let cellContentTop = frame.origin.y + layout.cellInset.top
+
+        // Layout cell content into a CTFrame so we can iterate per
+        // visual (wrapped) line. Height is generous; we only iterate
+        // lines actually produced.
+        let framesetter = CTFramesetterCreateWithAttributedString(cellAS)
+        let path = CGPath(
+            rect: CGRect(x: 0, y: 0, width: columnWidth, height: 100_000),
+            transform: nil)
+        let ctFrame = CTFramesetterCreateFrame(
+            framesetter,
+            CFRange(location: 0, length: 0),
+            path,
+            nil)
+        guard let lines = CTFrameGetLines(ctFrame) as? [CTLine] else { return }
+
+        // Stack lines from the cell's content top. Each line's height
+        // = ascent + descent + leading.
+        var lineTopY: CGFloat = 0
+        for line in lines {
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            var leading: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
+            let lineHeight = ascent + descent + leading
+
+            let cfRange = CTLineGetStringRange(line)
+            let lineLo = cfRange.location
+            let lineHi = lineLo + cfRange.length
+            let interStart = max(localStart, lineLo)
+            let interEnd = min(localEnd, lineHi)
+
+            if interStart < interEnd {
+                let x1 = CTLineGetOffsetForStringIndex(line, interStart, nil)
+                let x2 = CTLineGetOffsetForStringIndex(line, interEnd, nil)
+                let r = CGRect(
+                    x: cellContentLeft + x1,
+                    y: cellContentTop + lineTopY,
+                    width: x2 - x1,
+                    height: lineHeight)
+                context.fill(r)
+            }
+
+            lineTopY += lineHeight
         }
     }
 

@@ -93,9 +93,24 @@ struct EditorContainer: NSViewRepresentable {
                 })
             context.coordinator.cellEditController = editController
             textView.cellEditController = editController
-            // TEST-HARNESS: register controller so harness actions can drive it.
+
+            // D13: modal popout controller (right-click escape hatch
+            // and future inline-content editing surface). Same render
+            // hook pattern as overlay — splice on Save, re-render.
+            let modalController = CellEditModalController(
+                hostView: textView,
+                renderHook: { [weak coord = context.coordinator] tv in
+                    if let lrtv = tv as? LiveRenderTextView {
+                        coord?.renderCurrentText(in: lrtv)
+                    }
+                })
+            context.coordinator.cellEditModalController = modalController
+            textView.cellEditModalController = modalController
+
+            // TEST-HARNESS: register controllers so harness actions can drive them.
             #if DEBUG
             HarnessCommandPoller.shared.cellEditController = editController
+            HarnessCommandPoller.shared.cellEditModalController = modalController
             #endif
         } else {
             NSLog("TEXTKIT2-WARNING: textLayoutManager is nil — NOT on TextKit 2 code path")
@@ -173,6 +188,8 @@ struct EditorContainer: NSViewRepresentable {
         /// D13: per-cell edit overlay controller. Mounts the overlay
         /// on single-click of a table cell.
         var cellEditController: CellEditController?
+        /// D13: modal popout controller — opened via right-click menu.
+        var cellEditModalController: CellEditModalController?
         let cursorTracker = CursorLineTracker()
         private let document: EditorDocument
         private var cancellables: Set<AnyCancellable> = []

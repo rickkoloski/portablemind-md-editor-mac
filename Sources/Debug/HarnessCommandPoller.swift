@@ -29,6 +29,10 @@
 //   {"action":"cancel_overlay"}
 //   {"action":"simulate_click_at_table_cell", "table":N, "row":N, "col":N,
 //                                              "relX":F, "relY":F}
+//   {"action":"open_modal_at_table_cell", "table":N, "row":N, "col":N}
+//   {"action":"set_modal_text",  "text":"..."}
+//   {"action":"commit_modal"}
+//   {"action":"cancel_modal"}
 //
 // Atomic file writes are required when the driver uses this poller —
 // we read once per tick and silently drop on JSON-parse fail (mirrors
@@ -50,6 +54,8 @@ final class HarnessCommandPoller {
     /// D13 — set by EditorContainer.Coordinator at editor creation so
     /// harness actions can drive overlay show/commit/cancel directly.
     weak var cellEditController: CellEditController?
+    /// D13 — modal popout controller for right-click testing.
+    weak var cellEditModalController: CellEditModalController?
 
     private init() {}
 
@@ -128,6 +134,22 @@ final class HarnessCommandPoller {
             cellEditController?.commit()
         case "cancel_overlay":
             cellEditController?.cancel()
+        case "open_modal_at_table_cell":
+            if let tableIdx = params["table"] as? Int,
+               let row = params["row"] as? Int,
+               let col = params["col"] as? Int {
+                openModalAtTableCell(tableIndex: tableIdx,
+                                     rowIdx: row, colIdx: col)
+            }
+        case "set_modal_text":
+            if let text = params["text"] as? String,
+               let modal = cellEditModalController, modal.isActive {
+                setModalText(text)
+            }
+        case "commit_modal":
+            commitModal()
+        case "cancel_modal":
+            cancelModal()
         case "advance_overlay_tab":
             let backward = (params["backward"] as? Bool) ?? false
             advanceOverlayTab(backward: backward)
@@ -196,6 +218,12 @@ final class HarnessCommandPoller {
             ]
         } else {
             payload["overlay"] = ["active": false]
+        }
+        // D13 Phase 5: surface modal state.
+        if let modal = cellEditModalController, modal.isActive {
+            payload["modal"] = ["active": true]
+        } else {
+            payload["modal"] = ["active": false]
         }
         if let frame = tv.window?.frame {
             payload["windowFrame"] = [
@@ -306,6 +334,87 @@ final class HarnessCommandPoller {
               let ov = tv.subviews.compactMap({ $0 as? CellEditOverlay }).first
         else { return }
         ov.insertText(text, replacementRange: ov.selectedRange())
+    }
+
+    /// D13 Phase 5 — open modal popout on (table, row, col) directly,
+    /// bypassing the right-click menu. Emulates the menu-action chain
+    /// (commit overlay if active on a different cell, then open modal).
+    private func openModalAtTableCell(tableIndex: Int, rowIdx: Int, colIdx: Int) {
+        guard let tv = HarnessActiveSink.shared.activeTextView,
+              let storage = tv.textStorage,
+              let modal = cellEditModalController else { return }
+        // Commit any active overlay first (per spec §3.13 row 2).
+        if let ctl = cellEditController, ctl.isActive {
+            ctl.commit()
+        }
+        // Locate cell.
+        var layouts: [(ObjectIdentifier, TableLayout, [(NSRange, TableRowAttachment)])] = []
+        storage.enumerateAttribute(
+            TableAttributeKeys.rowAttachmentKey,
+            in: NSRange(location: 0, length: storage.length),
+            options: []
+        ) { value, range, _ in
+            guard let att = value as? TableRowAttachment else { return }
+            let id = ObjectIdentifier(att.layout)
+            if let idx = layouts.firstIndex(where: { $0.0 == id }) {
+                layouts[idx].2.append((range, att))
+            } else {
+                layouts.append((id, att.layout, [(range, att)]))
+            }
+        }
+        guard tableIndex < layouts.count else { return }
+        let layout = layouts[tableIndex].1
+        let nonSep = layouts[tableIndex].2.filter { $0.1.kind != .separator }
+        guard rowIdx < nonSep.count,
+              let cci = nonSep[rowIdx].1.cellContentIndex,
+              colIdx < layout.cellRanges[cci].count else { return }
+        let cellRange = layout.cellRanges[cci][colIdx]
+        let cellSource = (tv.string as NSString).substring(with: cellRange)
+        modal.openModal(
+            forCellRange: cellRange,
+            originalContent: cellSource,
+            rowLabel: "Row \(rowIdx)",
+            colLabel: "Col \(colIdx + 1)")
+    }
+
+    private func setModalText(_ text: String) {
+        // Modal's NSTextView is not exposed publicly; use a runtime
+        // approach: find the modal window's textview via subview walk.
+        guard let modal = cellEditModalController, modal.isActive else { return }
+        for win in NSApp.windows where win.title.hasPrefix("Edit Cell") {
+            if let scrollView = win.contentView?.subviews
+                .compactMap({ $0 as? NSScrollView }).first,
+               let tv = scrollView.documentView as? NSTextView {
+                tv.string = text
+                return
+            }
+        }
+    }
+
+    private func commitModal() {
+        guard let modal = cellEditModalController, modal.isActive else { return }
+        // Modal's saveAction is private; trigger via the Save button's
+        // target/action chain by walking the contentView.
+        for win in NSApp.windows where win.title.hasPrefix("Edit Cell") {
+            if let saveBtn = win.contentView?.subviews
+                .compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "Save" }) {
+                saveBtn.performClick(nil)
+                return
+            }
+        }
+    }
+
+    private func cancelModal() {
+        guard let modal = cellEditModalController, modal.isActive else { return }
+        for win in NSApp.windows where win.title.hasPrefix("Edit Cell") {
+            if let cancelBtn = win.contentView?.subviews
+                .compactMap({ $0 as? NSButton })
+                .first(where: { $0.title == "Cancel" }) {
+                cancelBtn.performClick(nil)
+                return
+            }
+        }
     }
 
     /// D13 Phase 4 — drive Tab/Shift+Tab via the overlay's delegate.

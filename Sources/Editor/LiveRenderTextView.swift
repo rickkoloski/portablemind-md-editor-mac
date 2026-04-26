@@ -29,6 +29,10 @@ final class LiveRenderTextView: NSTextView {
     /// a table cell mounts the overlay rather than placing a flat caret.
     weak var cellEditController: CellEditController?
 
+    /// D13: modal popout controller — opened via right-click menu's
+    /// "Edit Cell in Popout…" item.
+    weak var cellEditModalController: CellEditModalController?
+
     // MARK: - Mouse
 
     override func mouseDown(with event: NSEvent) {
@@ -416,4 +420,97 @@ final class LiveRenderTextView: NSTextView {
     private static let keyTab: UInt16 = 48
     private static let keyLeft: UInt16 = 123
     private static let keyRight: UInt16 = 124
+
+    // MARK: - Right-click menu (D13 §3.12 modal popout)
+
+    /// Add an "Edit Cell in Popout…" item to the contextual menu when
+    /// the click was on a table cell. Suppress the item when an
+    /// overlay is already active on the SAME cell (spec §3.13 row 3).
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let baseMenu = super.menu(for: event) ?? NSMenu()
+        guard let tlm = textLayoutManager else { return baseMenu }
+
+        let viewPoint = convert(event.locationInWindow, from: nil)
+        let containerPoint = NSPoint(
+            x: viewPoint.x - textContainerInset.width,
+            y: viewPoint.y - textContainerInset.height)
+        guard let frag = tlm.textLayoutFragment(for: containerPoint),
+              let row = frag as? TableRowFragment,
+              row.attachment.kind != .separator,
+              let cci = row.attachment.cellContentIndex,
+              cci < row.attachment.layout.cellRanges.count else {
+            return baseMenu
+        }
+
+        // Locate column from x.
+        let layout = row.attachment.layout
+        let xInFrag = containerPoint.x - frag.layoutFragmentFrame.origin.x
+        var colIdx = -1
+        for c in 0..<layout.contentWidths.count {
+            let leftEdge = layout.columnLeadingX[c] - layout.cellInset.left
+            let rightEdge = layout.columnTrailingX[c] + layout.cellInset.right
+            if xInFrag >= leftEdge && xInFrag < rightEdge {
+                colIdx = c
+                break
+            }
+        }
+        guard colIdx >= 0 else { return baseMenu }
+
+        // §3.13 row 3: omit the popout item if the overlay is already
+        // active on this exact cell — user must commit / cancel first.
+        if let controller = cellEditController,
+           controller.isActive,
+           controller.activeRow == cci,
+           controller.activeCol == colIdx {
+            return baseMenu
+        }
+
+        let item = NSMenuItem(
+            title: "Edit Cell in Popout…",
+            action: #selector(editCellInPopoutAction(_:)),
+            keyEquivalent: "")
+        item.target = self
+        // Stash the (rowIdx, colIdx, cellRange) so the action can
+        // open the modal without recomputing geometry.
+        item.representedObject = CellMenuTarget(
+            rowIdx: cci, colIdx: colIdx,
+            cellRange: layout.cellRanges[cci][colIdx],
+            attachment: row.attachment)
+        baseMenu.insertItem(item, at: 0)
+        baseMenu.insertItem(.separator(), at: 1)
+        return baseMenu
+    }
+
+    @objc func editCellInPopoutAction(_ sender: NSMenuItem) {
+        guard let target = sender.representedObject as? CellMenuTarget,
+              let modal = cellEditModalController else { return }
+        // §3.13 row 2: commit any active overlay on a different cell first.
+        if let controller = cellEditController, controller.isActive {
+            controller.commit()
+        }
+        let cellSource = (string as NSString).substring(with: target.cellRange)
+        let rowLabel = "Row \(target.rowIdx)"
+        let colLabel = "Col \(target.colIdx + 1)"
+        modal.openModal(
+            forCellRange: target.cellRange,
+            originalContent: cellSource,
+            rowLabel: rowLabel,
+            colLabel: colLabel)
+    }
+}
+
+/// Carry data through the right-click menu action.
+private final class CellMenuTarget: NSObject {
+    let rowIdx: Int
+    let colIdx: Int
+    let cellRange: NSRange
+    let attachment: TableRowAttachment
+    init(rowIdx: Int, colIdx: Int, cellRange: NSRange,
+         attachment: TableRowAttachment) {
+        self.rowIdx = rowIdx
+        self.colIdx = colIdx
+        self.cellRange = cellRange
+        self.attachment = attachment
+        super.init()
+    }
 }

@@ -1,24 +1,45 @@
 import AppKit
 import Foundation
 
-/// NSTextView subclass housing our TextKit 2 live-render editor.
+/// NSTextView subclass for the live-render markdown editor.
 ///
-/// IMPORTANT (`docs/engineering-standards_ref.md` §2.2): never access
-/// `.layoutManager` on this class or any `NSTextView`. Accessing it
-/// lazy-creates a TextKit 1 manager and silently flips the code path.
+/// **TextKit 1 host** as of D17. Constructed via the explicit storage
+/// → layout-manager → container chain so the text view never picks up
+/// `NSTextLayoutManager` (TK2). The pre-D17 standard prohibited
+/// touching `.layoutManager` because that demoted us from the TK2
+/// path; post-D17 the standard is inverted — we are deliberately on
+/// TK1 (see `docs/current_work/specs/d17_textkit1_migration_spec.md`
+/// § 2 for citations) and `.layoutManager` is the supported path.
 ///
-/// D12 adds cell-aware behavior for table rows:
-/// - Single-click in a cell snaps the caret to a valid in-cell offset
-///   (via `snapCaretToCellContent` after the default click flow).
-/// - Double-click in a cell toggles whole-row source-reveal mode
-///   (replaces D8.1's caret-in-range auto-reveal).
-/// - Tab / Shift+Tab cycles through cells, crossing rows at the ends.
-/// - Left / Right arrow at cell-content boundaries jumps to the
-///   adjacent cell (skipping pipe + whitespace source chars).
-/// - Backspace at cell-content-start moves caret to the previous
-///   cell's content-end (non-destructive); Delete is symmetric.
+/// Cell-aware behavior for table rows (Tab/Shift+Tab, Left/Right at
+/// cell boundaries, Backspace at content-start) is reinstated atop
+/// TK1 in D17 phase 6. The mid-flight code paths in this file that
+/// reference `textLayoutManager` are leftovers from D8–D13's TK2
+/// implementation; they will return nil under TK1 and silently no-op,
+/// and they are removed entirely in phases 3–5.
 final class LiveRenderTextView: NSTextView {
     override var acceptsFirstResponder: Bool { true }
+
+    /// D17 phase 1 — designated init that builds an explicit TK1
+    /// text-storage chain. Use this everywhere instead of relying on
+    /// `NSTextView`'s default initializer, which on macOS 12+ may
+    /// pick up `NSTextLayoutManager` (TK2).
+    convenience init() {
+        let storage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        storage.addLayoutManager(layoutManager)
+        let container = NSTextContainer(size: NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        layoutManager.addTextContainer(container)
+        self.init(frame: .zero, textContainer: container)
+        // Runtime trip wire: confirm we did not accidentally end up
+        // on TK2. If this assertion fires the construction chain
+        // above is wrong.
+        assert(self.textLayoutManager == nil,
+               "LiveRenderTextView ended up on TextKit 2 — D17 standard violated")
+    }
 
     /// Optional callback for the EditorContainer Coordinator to handle
     /// double-click reveal triggering. Set during view setup so this

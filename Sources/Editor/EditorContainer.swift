@@ -2,8 +2,8 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// SwiftUI → AppKit bridge hosting the TextKit 2 live-render editor
-/// for a single `EditorDocument`.
+/// SwiftUI → AppKit bridge hosting the live-render editor for a
+/// single `EditorDocument`.
 ///
 /// D6 refactor: takes an `EditorDocument` reference instead of a
 /// fileURL binding. `WorkspaceView` gives each EditorContainer a
@@ -12,11 +12,10 @@ import SwiftUI
 /// cleanly scoped per-document without having to manage cross-doc
 /// swapping inside a single NSTextView.
 ///
-/// IMPORTANT (`docs/engineering-standards_ref.md` §2.2): this file
-/// never references `NSTextView.layoutManager`. Only `textLayoutManager`
-/// is read. Accessing `.layoutManager` lazy-creates a TextKit 1 manager
-/// and flips the code path — the whole app's renderer depends on
-/// being in the TextKit 2 path.
+/// **TextKit 1 host** as of D17. The explicit init chain on
+/// `LiveRenderTextView` ensures `textLayoutManager` is never present;
+/// the runtime assert in that init is the trip wire. See
+/// `docs/current_work/specs/d17_textkit1_migration_spec.md` § 2.
 struct EditorContainer: NSViewRepresentable {
     @ObservedObject var document: EditorDocument
     @ObservedObject var settings: AppSettings = .shared
@@ -33,7 +32,7 @@ struct EditorContainer: NSViewRepresentable {
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
 
-        let textView = LiveRenderTextView(usingTextLayoutManager: true)
+        let textView = LiveRenderTextView()
         textView.isEditable = true
         textView.isRichText = false
         textView.allowsUndo = true
@@ -52,69 +51,13 @@ struct EditorContainer: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.wireDocumentSubscription()
 
-        if let tlm = textView.textLayoutManager {
-            NSLog("TEXTKIT2-OK: textLayoutManager=\(tlm)")
-            // D8: install the table layout delegate. It swaps in custom
-            // TableRowFragment instances for paragraphs tagged with the
-            // table row attachment attribute.
-            let tableDelegate = TableLayoutManagerDelegate()
-            context.coordinator.tableLayoutDelegate = tableDelegate
-            tlm.delegate = tableDelegate
-
-            // D12 step 2: install a custom NSTextSelectionDataSource
-            // that routes click + caret enumeration through table-cell
-            // geometry. Coordinator retains the data source; the
-            // navigation holds it weakly.
-            let cellDataSource = CellSelectionDataSource(wrapping: tlm)
-            context.coordinator.cellSelectionDataSource = cellDataSource
-            tlm.textSelectionNavigation = NSTextSelectionNavigation(
-                dataSource: cellDataSource)
-
-            // D12 step 3 + 5: replace D8.1's caret-in-range auto-reveal
-            // with explicit double-click trigger. The text view fires
-            // this callback when a double-click hits a TableRowFragment;
-            // the Coordinator toggles reveal state.
-            textView.onDoubleClickRevealRequest = {
-                [weak coord = context.coordinator,
-                 weak tv = textView] attachment in
-                coord?.revealRow(for: attachment, in: tv)
-            }
-
-            // D13: per-cell edit overlay controller. Holds the
-            // singleton overlay; mounts on single-click of a cell.
-            // Render hook re-uses production's renderCurrentText so
-            // commit re-renders via the existing path.
-            let editController = CellEditController(
-                hostView: textView,
-                renderHook: { [weak coord = context.coordinator] tv in
-                    if let lrtv = tv as? LiveRenderTextView {
-                        coord?.renderCurrentText(in: lrtv)
-                    }
-                })
-            context.coordinator.cellEditController = editController
-            textView.cellEditController = editController
-
-            // D13: modal popout controller (right-click escape hatch
-            // and future inline-content editing surface). Same render
-            // hook pattern as overlay — splice on Save, re-render.
-            let modalController = CellEditModalController(
-                hostView: textView,
-                renderHook: { [weak coord = context.coordinator] tv in
-                    if let lrtv = tv as? LiveRenderTextView {
-                        coord?.renderCurrentText(in: lrtv)
-                    }
-                })
-            context.coordinator.cellEditModalController = modalController
-            textView.cellEditModalController = modalController
-
-            // TEST-HARNESS: register controllers so harness actions can drive them.
-            #if DEBUG
-            HarnessCommandPoller.shared.cellEditController = editController
-            HarnessCommandPoller.shared.cellEditModalController = modalController
-            #endif
-        } else {
-            NSLog("TEXTKIT2-WARNING: textLayoutManager is nil — NOT on TextKit 2 code path")
-        }
+        // D17 phase 1: TK2-specific setup retired (table layout
+        // delegate, cell-selection data source, double-click reveal,
+        // cell-edit overlay/modal). Tables will render incorrectly
+        // until phase 2 ports the markdown renderer to emit native
+        // NSTextTable attributes; non-table content renders normally.
+        // Tripwire: assertion in LiveRenderTextView.init() will fire
+        // if the text view ends up on TK2 by accident.
 
         // Seed the text view from the document, then render once.
         textView.string = document.source

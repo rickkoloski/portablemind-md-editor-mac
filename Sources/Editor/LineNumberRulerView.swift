@@ -1,9 +1,12 @@
 import AppKit
 
 /// Line-number gutter drawn as an `NSRulerView` attached to the
-/// editor's scroll view. TextKit 2: line-fragment geometry comes from
-/// `NSTextLayoutManager.enumerateTextLayoutFragments` — no
-/// `.layoutManager` access anywhere (engineering-standards §2.2).
+/// editor's scroll view.
+///
+/// **TextKit 1** (D17): line-fragment geometry comes from
+/// `NSLayoutManager.enumerateLineFragments(forGlyphRange:using:)`. The
+/// pre-D17 implementation iterated TK2's `NSTextLayoutFragment`s; that
+/// API path returns nil under our current TK1 host.
 ///
 /// Visibility is controlled externally by `EditorContainer` via
 /// `NSScrollView.rulersVisible`. This view always renders when given
@@ -41,8 +44,8 @@ final class LineNumberRulerView: NSRulerView {
 
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let textView = clientView as? NSTextView,
-              let tlm = textView.textLayoutManager,
-              let tcm = tlm.textContentManager
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer
         else { return }
 
         gutterBackground.setFill()
@@ -57,37 +60,50 @@ final class LineNumberRulerView: NSRulerView {
             .foregroundColor: gutterTextColor
         ]
 
-        tlm.enumerateTextLayoutFragments(
-            from: tlm.documentRange.location,
-            options: [.ensuresLayout]
-        ) { [weak self] fragment in
-            guard let self else { return false }
+        // Iterate logical (source) lines, not visual (wrapped) lines.
+        // For each non-empty source line, take the first character's
+        // glyph and use that glyph's line-fragment rect as the y
+        // anchor for the line number. Empty source lines (consecutive
+        // newlines) get their number drawn at the line-fragment rect
+        // of the newline glyph itself.
+        let nsSource = source as NSString
+        for (index, lineStart) in cachedLineStarts.enumerated() {
+            // Determine the character range to look up. For the last
+            // logical line (which may not end with a newline), point
+            // at the first char on the line; for an empty line, the
+            // newline char itself.
+            let charIndex = lineStart < nsSource.length ? lineStart : max(0, nsSource.length - 1)
+            let glyphIndex = layoutManager.glyphIndexForCharacter(at: charIndex)
+            guard glyphIndex < layoutManager.numberOfGlyphs ||
+                  (glyphIndex == 0 && layoutManager.numberOfGlyphs == 0) else { continue }
+            let lineFragRect: NSRect
+            if layoutManager.numberOfGlyphs == 0 {
+                // Empty document — draw "1" at the top.
+                lineFragRect = NSRect(x: 0, y: 0,
+                                      width: textContainer.size.width,
+                                      height: textView.font?.boundingRectForFont.height ?? 16)
+            } else {
+                var effective: NSRange = NSRange(location: 0, length: 0)
+                lineFragRect = layoutManager.lineFragmentRect(
+                    forGlyphAt: min(glyphIndex, layoutManager.numberOfGlyphs - 1),
+                    effectiveRange: &effective)
+            }
 
-            // Fragment frame is in text-container coordinates. Offset
-            // by container origin to get text-view coordinates, then
-            // convert to ruler-view coordinates.
-            let frameInTextView = fragment.layoutFragmentFrame
-                .offsetBy(dx: textContainerOrigin.x,
-                          dy: textContainerOrigin.y)
+            let frameInTextView = lineFragRect.offsetBy(
+                dx: textContainerOrigin.x,
+                dy: textContainerOrigin.y)
             let frameInRuler = self.convert(frameInTextView, from: textView)
 
-            // Dirty-rect culling.
-            if frameInRuler.minY > rect.maxY { return false }
-            if frameInRuler.maxY < rect.minY { return true }
+            if frameInRuler.minY > rect.maxY { break }       // past viewport
+            if frameInRuler.maxY < rect.minY { continue }    // before viewport
 
-            // Map fragment start to a 1-based line number.
-            let elementRange = fragment.rangeInElement
-            let startOffset = tcm.offset(from: tcm.documentRange.location,
-                                         to: elementRange.location)
-            let lineNumber = self.lineNumber(for: startOffset)
-
+            let lineNumber = index + 1
             let str = "\(lineNumber)" as NSString
             let strSize = str.size(withAttributes: attrs)
             let x = self.ruleThickness - strSize.width - self.rightPadding
             let y = frameInRuler.minY
                 + (frameInRuler.height - strSize.height) / 2
             str.draw(at: CGPoint(x: x, y: y), withAttributes: attrs)
-            return true
         }
     }
 

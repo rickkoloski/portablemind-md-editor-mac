@@ -1,5 +1,10 @@
 # D12: Per-Cell Table Editing — COMPLETE
 
+**SUPERSESSION NOTE (2026-04-26):** D12's in-cell caret + selection rendering is superseded by **D13 cell-edit overlay** (`docs/current_work/stepwise_results/d13_cell_edit_overlay_COMPLETE.md`). The wrapped-cell limitation noted in this doc's "Deferrals" is resolved by D13's overlay path. **Mechanisms RETAINED from D12 in D13:** `cellRanges`, `CellSelectionDataSource` (click hit-testing, used by both default NSTextView path and the overlay's mouseDown override), `TableRowFragment.drawSelectionHighlights` (still draws non-overlay selections), `TableLayoutManagerDelegate.revealedTables` (D8.1 reveal mechanism for double-click → source mode), cell-boundary keyboard nav (Tab/arrow/Backspace/Delete between cells when no overlay is active). **REMOVED from D12 in D13:** `snapCaretToCellContent` (single-click now mounts overlay).
+
+---
+
+
 **Shipped:** 2026-04-25
 **Spec:** `docs/current_work/specs/d12_per_cell_table_editing_spec.md`
 **Plan:** `docs/current_work/planning/d12_per_cell_table_editing_plan.md`

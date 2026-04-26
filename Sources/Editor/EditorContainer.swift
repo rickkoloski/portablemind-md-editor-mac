@@ -505,6 +505,14 @@ struct EditorContainer: NSViewRepresentable {
             let source = textStorage.string
             let result = document.documentType.render(source)
 
+            // Capture scroll Y BEFORE the storage edit. The full-storage
+            // re-attribute below causes TextKit 2 to re-fragment the
+            // entire document, which moves the visible viewport. Without
+            // this preserve+restore, every keystroke can jump the scroll
+            // position by hundreds of points (D15 fix, 2026-04-26).
+            let preservedScrollY: CGFloat? = textView.enclosingScrollView
+                .map { $0.contentView.bounds.origin.y }
+
             textStorage.beginEditing()
             let fullRange = NSRange(location: 0, length: textStorage.length)
             textStorage.setAttributes([
@@ -522,6 +530,24 @@ struct EditorContainer: NSViewRepresentable {
             cursorTracker.invalidate()
             cursorTracker.collapseAllDelimiters(in: textView)
             cursorTracker.updateVisibility(in: textView)
+
+            // Restore scroll Y on the next runloop tick so layout
+            // settles before we override. Skip if the restore would
+            // overshoot the document height (e.g., text was deleted).
+            if let scrollView = textView.enclosingScrollView,
+               let target = preservedScrollY {
+                DispatchQueue.main.async {
+                    let docHeight = scrollView.documentView?.frame.size.height
+                        ?? scrollView.contentView.bounds.size.height
+                    let visibleH = scrollView.contentView.bounds.size.height
+                    let maxY = max(0, docHeight - visibleH)
+                    let clampedY = min(max(0, target), maxY)
+                    scrollView.contentView.scroll(
+                        to: NSPoint(x: scrollView.contentView.bounds.origin.x,
+                                    y: clampedY))
+                    scrollView.reflectScrolledClipView(scrollView.contentView)
+                }
+            }
         }
     }
 }

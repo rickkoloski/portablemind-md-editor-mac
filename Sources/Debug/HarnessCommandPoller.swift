@@ -16,6 +16,9 @@
 //   {"action":"set_text",        "text":"..."}
 //   {"action":"reset_text"}
 //   {"action":"set_selection",   "location":N, "length":M}
+//   {"action":"scroll_info",     "path":"/tmp/mdeditor-scroll.json"}
+//   {"action":"set_scroll",      "y":F}
+//   {"action":"insert_text",     "text":"...", "atSelection":true}
 //
 // D13 actions:
 //   {"action":"query_caret_for_click", "table":N, "row":N, "col":N,
@@ -112,6 +115,22 @@ final class HarnessCommandPoller {
                let tv = HarnessActiveSink.shared.activeTextView {
                 let len = params["length"] as? Int ?? 0
                 tv.setSelectedRange(NSRange(location: loc, length: len))
+            }
+        case "scroll_info":
+            writeScrollInfo(to: params["path"] as? String
+                ?? "/tmp/mdeditor-scroll.json")
+        case "set_scroll":
+            if let tv = HarnessActiveSink.shared.activeTextView,
+               let scrollView = tv.enclosingScrollView {
+                let y = (params["y"] as? Double).map { CGFloat($0) }
+                    ?? CGFloat((params["y"] as? Int) ?? 0)
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+        case "insert_text":
+            if let text = params["text"] as? String,
+               let tv = HarnessActiveSink.shared.activeTextView {
+                tv.insertText(text, replacementRange: tv.selectedRange())
             }
         case "show_overlay_at_table_cell":
             if let tableIdx = params["table"] as? Int,
@@ -582,6 +601,31 @@ final class HarnessCommandPoller {
     }
 
     private func writeJSONError(_ payload: [String: Any], to path: String) {
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    private func writeScrollInfo(to path: String) {
+        guard let tv = HarnessActiveSink.shared.activeTextView,
+              let scrollView = tv.enclosingScrollView else {
+            writeJSONError(["error": "no scroll view"], to: path)
+            return
+        }
+        let cv = scrollView.contentView
+        let docVisible = scrollView.documentVisibleRect
+        let payload: [String: Any] = [
+            "contentBounds": [
+                "x": cv.bounds.origin.x, "y": cv.bounds.origin.y,
+                "w": cv.bounds.size.width, "h": cv.bounds.size.height
+            ],
+            "documentVisibleRect": [
+                "x": docVisible.origin.x, "y": docVisible.origin.y,
+                "w": docVisible.size.width, "h": docVisible.size.height
+            ],
+            "scrollY": cv.bounds.origin.y
+        ]
         if let data = try? JSONSerialization.data(
             withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: path))

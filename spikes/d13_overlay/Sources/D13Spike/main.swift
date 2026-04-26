@@ -68,7 +68,7 @@ final class SpikeWindowController: NSObject {
         let textStorage = textContentStorage.textStorage!
         textStorage.setAttributedString(NSAttributedString(string: seedSource))
 
-        self.textView = NSTextView(frame: .zero, textContainer: textContainer)
+        self.textView = LiveRenderTextView(frame: .zero, textContainer: textContainer)
         textView.minSize = CGSize(width: 0, height: 0)
         textView.maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -128,7 +128,11 @@ final class SpikeWindowController: NSObject {
     func show() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // Wire cell-edit controller after textView exists.
+        let controller = CellEditController(hostView: textView)
+        (textView as? LiveRenderTextView)?.cellEditController = controller
         HarnessCommandPoller.shared.start(window: window, textView: textView)
+        HarnessCommandPoller.shared.cellEditController = controller
     }
 }
 

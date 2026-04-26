@@ -20,6 +20,7 @@ final class HarnessCommandPoller {
 
     weak var window: NSWindow?
     weak var textView: NSTextView?
+    weak var cellEditController: CellEditController?
 
     private var timer: Timer?
 
@@ -64,6 +65,18 @@ final class HarnessCommandPoller {
                 let len = (obj["length"] as? Int) ?? 0
                 setSelection(loc, len)
             }
+        case "commit_overlay":
+            cellEditController?.commit()
+        case "cancel_overlay":
+            cellEditController?.cancel()
+        case "type_in_overlay":
+            if let s = obj["text"] as? String { typeInOverlay(s) }
+        case "show_overlay_at_table_cell":
+            if let table = obj["table"] as? Int,
+               let row = obj["row"] as? Int,
+               let col = obj["col"] as? Int {
+                showOverlayAtTableCell(tableIndex: table, rowIdx: row, colIdx: col)
+            }
         default:
             spikeLog("harness: unknown action \(action)")
         }
@@ -75,10 +88,21 @@ final class HarnessCommandPoller {
         if let r = tv.selectedRanges.first as? NSRange {
             sel = [r.location, r.length]
         }
+        var overlayInfo: [String: Any] = ["active": false]
+        if let c = cellEditController, c.isActive {
+            overlayInfo = [
+                "active": true,
+                "row": c.activeRow,
+                "col": c.activeCol,
+                "cellRangeLocation": c.activeCellRange.location,
+                "cellRangeLength": c.activeCellRange.length
+            ]
+        }
         let payload: [String: Any] = [
             "source": tv.string,
             "selection": sel,
-            "windowFrame": frameDict(window?.frame ?? .zero)
+            "windowFrame": frameDict(window?.frame ?? .zero),
+            "overlay": overlayInfo
         ]
         if let data = try? JSONSerialization.data(withJSONObject: payload,
                                                   options: [.prettyPrinted]) {
@@ -130,6 +154,81 @@ final class HarnessCommandPoller {
         tv.string = s
         if let storage = tv.textStorage {
             SpikeRenderer.render(into: storage)
+        }
+    }
+
+    /// Walk text storage attributes to find the Nth distinct TableLayout
+    /// (table 0 = first table in document order). Within that layout,
+    /// pick the row at rowIdx (header=0, body=1, 2, ...) and call
+    /// CellEditController.showOverlay with the right parameters.
+    private func showOverlayAtTableCell(tableIndex: Int, rowIdx: Int, colIdx: Int) {
+        guard let tv = textView,
+              let storage = tv.textStorage,
+              let tlm = tv.textLayoutManager,
+              let controller = cellEditController else { return }
+
+        // Collect (rowSourceRange, attachment) for every row in document order.
+        var rows: [(NSRange, TableRowAttachment)] = []
+        let full = NSRange(location: 0, length: storage.length)
+        storage.enumerateAttribute(SpikeAttributeKeys.rowAttachmentKey,
+                                   in: full,
+                                   options: []) { value, range, _ in
+            if let att = value as? TableRowAttachment {
+                rows.append((range, att))
+            }
+        }
+
+        // Group rows by layout (ObjectIdentifier of layout instance).
+        var layoutOrder: [ObjectIdentifier] = []
+        var rowsByLayout: [ObjectIdentifier: [(NSRange, TableRowAttachment)]] = [:]
+        for r in rows {
+            let id = ObjectIdentifier(r.1.layout)
+            if rowsByLayout[id] == nil {
+                layoutOrder.append(id)
+                rowsByLayout[id] = []
+            }
+            rowsByLayout[id]?.append(r)
+        }
+
+        guard tableIndex < layoutOrder.count else {
+            spikeLog("show_overlay_at_table_cell: tableIndex \(tableIndex) out of range")
+            return
+        }
+        let id = layoutOrder[tableIndex]
+        let layoutRows = rowsByLayout[id] ?? []
+        // Skip separator row (kind == .separator).
+        let nonSepRows = layoutRows.filter { $0.1.kind != .separator }
+        guard rowIdx < nonSepRows.count else {
+            spikeLog("show_overlay_at_table_cell: rowIdx \(rowIdx) out of range (have \(nonSepRows.count))")
+            return
+        }
+        let (rowRange, attachment) = nonSepRows[rowIdx]
+        guard let cci = attachment.cellContentIndex else { return }
+
+        // Find the layout fragment for that row.
+        guard let docStart = tlm.textContentManager?.documentRange.location else { return }
+        guard let rowStart = tlm.location(docStart, offsetBy: rowRange.location) else { return }
+        guard let frag = tlm.textLayoutFragment(for: rowStart) else {
+            spikeLog("show_overlay_at_table_cell: no fragment at row")
+            return
+        }
+
+        controller.showOverlay(
+            attachment: attachment,
+            rowIdx: cci,
+            colIdx: colIdx,
+            tableRowSourceRange: rowRange,
+            localCaretIndex: 0,
+            fragmentFrame: frag.layoutFragmentFrame)
+    }
+
+    private func typeInOverlay(_ s: String) {
+        guard let controller = cellEditController, controller.isActive else { return }
+        // Insert text at current selection in the overlay.
+        // Find the overlay subview to type into.
+        if let host = textView,
+           let ov = host.subviews.compactMap({ $0 as? CellEditOverlay }).first {
+            ov.insertText(s, replacementRange: ov.selectedRange())
         }
     }
 

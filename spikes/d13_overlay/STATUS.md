@@ -19,7 +19,7 @@ Tier 1 (overlay show/hide/commit lifecycle) GREEN — show, type, commit, cancel
 
 - [x] Phase 1 sandbox + harness
 - [x] Tier 1 — overlay show/hide/commit lifecycle
-- [ ] **Tier 2 — click-to-caret math (PRIMARY UNKNOWN)**
+- [x] **Tier 2 — click-to-caret math (PRIMARY UNKNOWN) — GREEN**
 - [ ] Tier 3 — visual continuity
 - [ ] Tier 4 — wrapping in overlay
 - [ ] Tier 5 — Tab/Enter/Escape + scroll
@@ -69,4 +69,5 @@ Actions:
 | Commit | Summary |
 |---|---|
 | `7ecb072` | D13 spike triad + Phase 1 sandbox bring-up |
-| (next) | D13 spike Tier 1 — overlay show/hide/commit lifecycle GREEN |
+| `96b84be` | Tier 1 — overlay show/hide/commit lifecycle GREEN |
+| (next) | Tier 2 — click-to-caret math (PRIMARY) GREEN |

@@ -50,9 +50,16 @@ final class LiveRenderTextView: NSTextView {
             return
         }
 
-        // For Tier 1: place caret at offset 0. Tier 2 implements
-        // proper click-to-caret math.
-        let localCaretIndex = 0
+        // Tier 2: click-to-caret math via CTFramesetter (spec §3.5).
+        // Convert click point to cell-content-local coords (relative to
+        // the cell's content origin = column leading + cellInset.top).
+        let cellContentOriginX = fragFrame.origin.x + layout.columnLeadingX[colIdx]
+        let cellContentOriginY = fragFrame.origin.y + layout.cellInset.top
+        let relX = containerPoint.x - cellContentOriginX
+        let relY = containerPoint.y - cellContentOriginY
+        let localCaretIndex = layout.cellLocalCaretIndex(
+            rowIdx: cci, colIdx: colIdx,
+            relX: relX, relY: relY)
 
         // Find the source range of the table row containing the fragment.
         // The fragment's textElement.elementRange gives us this.

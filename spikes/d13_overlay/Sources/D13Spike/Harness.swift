@@ -75,7 +75,18 @@ final class HarnessCommandPoller {
             if let table = obj["table"] as? Int,
                let row = obj["row"] as? Int,
                let col = obj["col"] as? Int {
-                showOverlayAtTableCell(tableIndex: table, rowIdx: row, colIdx: col)
+                let initialCaret = obj["caret"] as? Int
+                showOverlayAtTableCell(tableIndex: table, rowIdx: row, colIdx: col,
+                                       initialCaret: initialCaret)
+            }
+        case "query_caret_for_click":
+            if let table = obj["table"] as? Int,
+               let row = obj["row"] as? Int,
+               let col = obj["col"] as? Int,
+               let relX = obj["relX"] as? Double,
+               let relY = obj["relY"] as? Double {
+                queryCaretForClick(tableIndex: table, rowIdx: row, colIdx: col,
+                                   relX: CGFloat(relX), relY: CGFloat(relY))
             }
         default:
             spikeLog("harness: unknown action \(action)")
@@ -161,7 +172,65 @@ final class HarnessCommandPoller {
     /// (table 0 = first table in document order). Within that layout,
     /// pick the row at rowIdx (header=0, body=1, 2, ...) and call
     /// CellEditController.showOverlay with the right parameters.
-    private func showOverlayAtTableCell(tableIndex: Int, rowIdx: Int, colIdx: Int) {
+    /// Look up table layout (without showing overlay) and return the
+    /// computed local caret index for a click at (relX, relY) in
+    /// cell-content-local coords. Result written to /tmp/d13-caret.json.
+    private func queryCaretForClick(tableIndex: Int, rowIdx: Int, colIdx: Int,
+                                    relX: CGFloat, relY: CGFloat) {
+        guard let layoutAndRowIdx = findLayoutAndCellRow(tableIndex: tableIndex, rowIdx: rowIdx) else {
+            spikeLog("query_caret_for_click: no layout/row found")
+            return
+        }
+        let (layout, cci) = layoutAndRowIdx
+        let idx = layout.cellLocalCaretIndex(rowIdx: cci, colIdx: colIdx,
+                                             relX: relX, relY: relY)
+        let cellContent = (cci < layout.cellContentPerRow.count && colIdx < layout.cellContentPerRow[cci].count)
+            ? layout.cellContentPerRow[cci][colIdx].string
+            : ""
+        let payload: [String: Any] = [
+            "tableIndex": tableIndex, "rowIdx": rowIdx, "colIdx": colIdx,
+            "relX": Double(relX), "relY": Double(relY),
+            "localCaretIndex": idx,
+            "cellContent": cellContent,
+            "cellContentLength": cellContent.count
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted]) {
+            atomicWrite(data, to: "/tmp/d13-caret.json")
+        }
+        spikeLog("query_caret_for_click: tIdx=\(tableIndex) row=\(rowIdx) col=\(colIdx) rel=(\(relX),\(relY)) → \(idx)")
+    }
+
+    /// Helper used by both query_caret_for_click and show_overlay_at_table_cell.
+    private func findLayoutAndCellRow(tableIndex: Int, rowIdx: Int) -> (TableLayout, Int)? {
+        guard let storage = textView?.textStorage else { return nil }
+        var rows: [(NSRange, TableRowAttachment)] = []
+        let full = NSRange(location: 0, length: storage.length)
+        storage.enumerateAttribute(SpikeAttributeKeys.rowAttachmentKey,
+                                   in: full, options: []) { value, range, _ in
+            if let att = value as? TableRowAttachment {
+                rows.append((range, att))
+            }
+        }
+        var layoutOrder: [ObjectIdentifier] = []
+        var rowsByLayout: [ObjectIdentifier: [(NSRange, TableRowAttachment)]] = [:]
+        for r in rows {
+            let id = ObjectIdentifier(r.1.layout)
+            if rowsByLayout[id] == nil {
+                layoutOrder.append(id)
+                rowsByLayout[id] = []
+            }
+            rowsByLayout[id]?.append(r)
+        }
+        guard tableIndex < layoutOrder.count else { return nil }
+        let id = layoutOrder[tableIndex]
+        let layoutRows = (rowsByLayout[id] ?? []).filter { $0.1.kind != .separator }
+        guard rowIdx < layoutRows.count,
+              let cci = layoutRows[rowIdx].1.cellContentIndex else { return nil }
+        return (layoutRows[rowIdx].1.layout, cci)
+    }
+
+    private func showOverlayAtTableCell(tableIndex: Int, rowIdx: Int, colIdx: Int,
+                                        initialCaret: Int? = nil) {
         guard let tv = textView,
               let storage = tv.textStorage,
               let tlm = tv.textLayoutManager,
@@ -218,7 +287,7 @@ final class HarnessCommandPoller {
             rowIdx: cci,
             colIdx: colIdx,
             tableRowSourceRange: rowRange,
-            localCaretIndex: 0,
+            localCaretIndex: initialCaret ?? 0,
             fragmentFrame: frag.layoutFragmentFrame)
     }
 

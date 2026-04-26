@@ -141,6 +141,76 @@ extension TableLayout {
         let clamped = max(0, min(localOffset, cell.length))
         return CTLineGetOffsetForStringIndex(line, clamped, nil)
     }
+
+    /// D13 click-to-caret math (spec §3.5).
+    ///
+    /// Convert a click point in cell-content-local coords (relative to
+    /// the cell's content-area top-left, i.e. AFTER cellInset) into a
+    /// local character index in `cellContentPerRow[rowIdx][colIdx]`.
+    /// Caller computes `(relX, relY)` by subtracting the cell content
+    /// origin (`fragmentFrame.origin.x + columnLeadingX[colIdx]`,
+    /// `fragmentFrame.origin.y + cellInset.top`) from a click point in
+    /// container coords.
+    ///
+    /// Algorithm (validated GREEN in `spikes/d13_overlay/` Tier 2):
+    ///   1. Build CTFramesetter on the cell's NSAttributedString.
+    ///   2. Suggest a frame at `(contentWidths[colIdx], ∞)` — produces
+    ///      the same wrap behavior as `cell.draw(with:options:[.usesLineFragmentOrigin])`.
+    ///   3. Iterate `CTFrameGetLines`, accumulating per-line height
+    ///      (`ascent + descent + leading` from `CTLineGetTypographicBounds`).
+    ///   4. Find the line whose y-band `[accumulatedY, accumulatedY+lineHeight)`
+    ///      contains `relY`; return `CTLineGetStringIndexForPosition(line, (relX, 0))`.
+    ///   5. Click below all lines → return content length.
+    ///   6. Click above first line (relY < 0) → return 0.
+    ///   7. Result clamped to `[0, content.length]`; `kCFNotFound` → 0.
+    ///
+    /// CT-based math is font-agnostic: works for any NSAttributedString
+    /// with mixed font runs (bold + italic + monospaced etc.), proportional
+    /// fonts, and Unicode characters with non-uniform glyph advances.
+    func cellLocalCaretIndex(rowIdx: Int, colIdx: Int,
+                             relX: CGFloat, relY: CGFloat) -> Int {
+        guard rowIdx < cellContentPerRow.count,
+              colIdx < cellContentPerRow[rowIdx].count,
+              colIdx < contentWidths.count
+        else { return 0 }
+        let cell = cellContentPerRow[rowIdx][colIdx]
+        let length = cell.length
+        if length == 0 { return 0 }
+        if relY < 0 { return 0 }
+
+        let columnWidth = contentWidths[colIdx]
+        let framesetter = CTFramesetterCreateWithAttributedString(cell)
+        let path = CGPath(
+            rect: CGRect(x: 0, y: 0, width: columnWidth, height: 100_000),
+            transform: nil)
+        let ctFrame = CTFramesetterCreateFrame(
+            framesetter,
+            CFRange(location: 0, length: 0),
+            path,
+            nil)
+        guard let lines = CTFrameGetLines(ctFrame) as? [CTLine] else {
+            return 0
+        }
+
+        var accumulatedY: CGFloat = 0
+        for line in lines {
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            var leading: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
+            let lineHeight = ascent + descent + leading
+            if relY >= accumulatedY && relY < accumulatedY + lineHeight {
+                let idx = CTLineGetStringIndexForPosition(
+                    line,
+                    CGPoint(x: relX, y: 0))
+                if idx == kCFNotFound { return 0 }
+                return max(0, min(idx, length))
+            }
+            accumulatedY += lineHeight
+        }
+        // Click below all lines.
+        return length
+    }
 }
 
 // MARK: - Cell-range parsing

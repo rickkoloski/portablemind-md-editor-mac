@@ -40,16 +40,6 @@ final class LiveRenderTextView: NSTextView {
                "LiveRenderTextView ended up on TextKit 2 — D17 standard violated")
     }
 
-    /// D15.1 scroll-jump fix carryover (TK2 vintage). Retires in
-    /// phase 5 — TK1 doesn't have the auto-scroll-on-edit overshoot
-    /// this guarded against.
-    var scrollSuppressionDepth: Int = 0
-
-    override func scrollRangeToVisible(_ range: NSRange) {
-        if scrollSuppressionDepth > 0 { return }
-        super.scrollRangeToVisible(range)
-    }
-
     // MARK: - Mouse
 
     override func mouseDown(with event: NSEvent) {
@@ -65,33 +55,7 @@ final class LiveRenderTextView: NSTextView {
             identifier: binding.commandIdentifier, in: self) {
             return
         }
-        // D15.1 carryover: suppress NSTextView's internal auto-scroll
-        // for content-modifying keys. Navigation keys (arrows, page,
-        // home/end) keep natural follow-the-caret scrolling. Phase 5
-        // removes this entirely; TK1 doesn't have the overshoot.
-        let suppress = !Self.isNavigationKey(keyCode: event.keyCode)
-        if suppress {
-            scrollSuppressionDepth += 1
-        }
         super.keyDown(with: event)
-        if suppress {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.scrollSuppressionDepth = max(0, self.scrollSuppressionDepth - 1)
-            }
-        }
-    }
-
-    /// keyCodes for keys that should retain NSTextView's natural
-    /// auto-scroll-to-caret behavior. Everything else (printable chars,
-    /// return, delete, tab, escape, etc.) gets the suppression guard.
-    private static func isNavigationKey(keyCode: UInt16) -> Bool {
-        switch keyCode {
-        case 123, 124, 125, 126: return true   // arrows
-        case 116, 121:           return true   // page up, page down
-        case 115, 119:           return true   // home, end
-        default:                 return false
-        }
     }
 
     // MARK: - Debug HUD instrumentation

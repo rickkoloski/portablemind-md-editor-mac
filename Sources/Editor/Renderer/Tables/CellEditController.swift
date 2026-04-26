@@ -154,6 +154,7 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
         self.activeCol = colIdx
         self.activeCellRange = cellRange
         self.activeAttachment = attachment
+        startScrollObserver()
     }
 
     func commit() {
@@ -184,6 +185,7 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
     func cancel() { teardown() }
 
     private func teardown() {
+        stopScrollObserver()
         overlay?.removeFromSuperview()
         overlay = nil
         activeRow = -1
@@ -198,10 +200,117 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
     func overlayCommit(_ overlay: CellEditOverlay) { commit() }
     func overlayCancel(_ overlay: CellEditOverlay) { cancel() }
 
-    /// Phase 4 stub. Will be expanded with full Tab cycling logic
-    /// (cross-row, header exclusion, anchor-based table re-find).
+    /// Tab / Shift+Tab cycle cells across rows within the same table.
+    /// Header rows EXCLUDED from cycle (Numbers/Excel convention).
+    /// At table boundaries (past last body cell or before first body
+    /// cell) commit + dismiss.
     func overlayAdvanceTab(_ overlay: CellEditOverlay, backward: Bool) {
+        guard let attachment = activeAttachment,
+              let host = hostView,
+              let storage = host.textStorage,
+              let tlm = host.textLayoutManager else {
+            commit()
+            return
+        }
+        let curRow = activeRow
+        let curCol = activeCol
+        let layout = attachment.layout
+
+        var nextRow = curRow
+        var nextCol = curCol + (backward ? -1 : 1)
+        let colCount = layout.contentWidths.count
+        if nextCol >= colCount {
+            nextCol = 0
+            nextRow += 1
+        } else if nextCol < 0 {
+            nextCol = colCount - 1
+            nextRow -= 1
+        }
+        // Header EXCLUDED — cycle through body rows only (cci 1..N-1).
+        let firstBodyRow = 1
+        let lastBodyRow = layout.cellContentPerRow.count - 1
+        if nextRow < firstBodyRow || nextRow > lastBodyRow {
+            // Past table boundary — commit + dismiss.
+            commit()
+            return
+        }
+
+        // Commit current cell first; capture anchor for post-rerender lookup.
         commit()
+
+        // Re-walk attributes; group rows by layout instance ID; pick
+        // the table whose first-row offset is closest to the anchor.
+        guard let anchor = lastCommitAnchor else { return }
+        var rowsAll: [(NSRange, TableRowAttachment)] = []
+        let full = NSRange(location: 0, length: storage.length)
+        storage.enumerateAttribute(
+            TableAttributeKeys.rowAttachmentKey,
+            in: full, options: []
+        ) { value, range, _ in
+            if let att = value as? TableRowAttachment {
+                rowsAll.append((range, att))
+            }
+        }
+        var byLayout: [(ObjectIdentifier, [(NSRange, TableRowAttachment)])] = []
+        for r in rowsAll {
+            let id = ObjectIdentifier(r.1.layout)
+            if let idx = byLayout.firstIndex(where: { $0.0 == id }) {
+                byLayout[idx].1.append(r)
+            } else {
+                byLayout.append((id, [r]))
+            }
+        }
+        var bestTable: [(NSRange, TableRowAttachment)]?
+        var bestDist = Int.max
+        for (_, rows) in byLayout {
+            guard let firstLoc = rows.first?.0.location else { continue }
+            let dist = abs(firstLoc - anchor.tableFirstRowLoc)
+            if dist < bestDist {
+                bestDist = dist
+                bestTable = rows
+            }
+        }
+        guard let tableRows = bestTable else { return }
+        let nonSepRows = tableRows.filter { $0.1.kind != .separator }
+        guard nextRow < nonSepRows.count,
+              let cci = nonSepRows[nextRow].1.cellContentIndex else { return }
+        let (rowRange, nextAttachment) = nonSepRows[nextRow]
+        guard let docStart = tlm.textContentManager?.documentRange.location,
+              let rowStart = tlm.location(docStart, offsetBy: rowRange.location),
+              let frag = tlm.textLayoutFragment(for: rowStart) else { return }
+
+        // Initial caret = 0 in the new cell (Numbers convention).
+        showOverlay(
+            attachment: nextAttachment,
+            rowIdx: cci, colIdx: nextCol,
+            tableRowSourceRange: rowRange,
+            localCaretIndex: 0,
+            fragmentFrame: frag.layoutFragmentFrame)
+    }
+
+    // MARK: - Scroll observer (V1: scroll commits the overlay)
+
+    private var scrollObserver: Any?
+
+    private func startScrollObserver() {
+        guard let host = hostView,
+              let scrollView = host.enclosingScrollView else { return }
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: NSScrollView.willStartLiveScrollNotification,
+            object: scrollView,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.commit()
+            }
+        }
+    }
+
+    private func stopScrollObserver() {
+        if let observer = scrollObserver {
+            NotificationCenter.default.removeObserver(observer)
+            scrollObserver = nil
+        }
     }
 }
 

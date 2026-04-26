@@ -128,6 +128,9 @@ final class HarnessCommandPoller {
             cellEditController?.commit()
         case "cancel_overlay":
             cellEditController?.cancel()
+        case "advance_overlay_tab":
+            let backward = (params["backward"] as? Bool) ?? false
+            advanceOverlayTab(backward: backward)
         case "simulate_click_at_table_cell":
             // D13 Phase 3 — simulate a real mouseDown on the cell at
             // (table, row, col) at cell-content-local (relX, relY).
@@ -303,6 +306,15 @@ final class HarnessCommandPoller {
               let ov = tv.subviews.compactMap({ $0 as? CellEditOverlay }).first
         else { return }
         ov.insertText(text, replacementRange: ov.selectedRange())
+    }
+
+    /// D13 Phase 4 — drive Tab/Shift+Tab via the overlay's delegate.
+    private func advanceOverlayTab(backward: Bool) {
+        guard let controller = cellEditController, controller.isActive,
+              let tv = HarnessActiveSink.shared.activeTextView,
+              let ov = tv.subviews.compactMap({ $0 as? CellEditOverlay }).first
+        else { return }
+        controller.overlayAdvanceTab(ov, backward: backward)
     }
 
     /// D13 Phase 3 — locate the cell, compute its container-coords

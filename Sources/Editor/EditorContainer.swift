@@ -59,8 +59,12 @@ struct EditorContainer: NSViewRepresentable {
         // Tripwire: assertion in LiveRenderTextView.init() will fire
         // if the text view ends up on TK2 by accident.
 
-        // Seed the text view from the document, then render once.
-        textView.string = document.source
+        // Seed the text view from the document. The renderer reads
+        // `document.source` directly and produces a fully-attributed
+        // string that replaces storage; we don't pre-load `string`
+        // here because that would seed the storage with raw markdown
+        // (pipes etc.) which the renderer would then have to re-
+        // initialize anyway.
         context.coordinator.renderCurrentText(in: textView)
 
         // Publish this text view as the active dispatch target so the
@@ -164,13 +168,13 @@ struct EditorContainer: NSViewRepresentable {
                 .dropFirst()
                 .sink { [weak self] newText in
                     guard let self, let textView = self.textView else { return }
-                    if textView.string != newText {
-                        let previousLocation = textView.selectedRange().location
-                        textView.string = newText
-                        self.renderCurrentText(in: textView)
-                        let clamped = min(previousLocation, (newText as NSString).length)
-                        textView.setSelectedRange(NSRange(location: clamped, length: 0))
-                    }
+                    // D17: when the source changes BECAUSE we just
+                    // serialized a user edit (textDidChange path),
+                    // skip the re-render — storage is already correct.
+                    // Re-rendering would replace storage and reset
+                    // the caret.
+                    if self.isApplyingUserEditToSource { return }
+                    self.renderCurrentText(in: textView)
                 }
                 .store(in: &cancellables)
 
@@ -233,17 +237,36 @@ struct EditorContainer: NSViewRepresentable {
         // MARK: - Text changes from the user
 
         func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? LiveRenderTextView else { return }
-            // Write back to the document so the TabStore and any
-            // persistence layer stay in sync. Equality check avoids
-            // the Combine loop with wireDocumentSubscription's sink.
-            let current = textView.string
-            if document.source != current {
-                document.source = current
+            guard let textView = notification.object as? LiveRenderTextView,
+                  let storage = textView.textStorage else { return }
+            // D17: storage is the rendered form (cell paragraphs for
+            // tables, source-text for non-tables). Serialize the
+            // storage back to canonical markdown and update
+            // `document.source`. We deliberately do NOT call
+            // `renderCurrentText` here — that would replace storage
+            // and reset the user's caret on every keystroke.
+            // Storage stays internally consistent for editing; source
+            // is updated incrementally so save/load round-trip
+            // correctly.
+            let serialized = TK1Serializer.serialize(storage)
+            if document.source != serialized {
+                // Suppress the Combine sink loop: setting source
+                // would normally trigger wireDocumentSubscription's
+                // sink → renderCurrentText → reset caret. Mark this
+                // assignment as "from-edit" so the sink can short-
+                // circuit.
+                isApplyingUserEditToSource = true
+                defer { isApplyingUserEditToSource = false }
+                document.source = serialized
             }
-            renderCurrentText(in: textView)
             ruler?.invalidate()
         }
+
+        /// D17 — set during `textDidChange` while we sync the user's
+        /// edit back into `document.source`. The wireDocumentSubscription
+        /// sink reads this to skip the re-render that would otherwise
+        /// fire on every keystroke and reset the caret.
+        var isApplyingUserEditToSource: Bool = false
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? LiveRenderTextView else { return }
@@ -460,67 +483,39 @@ struct EditorContainer: NSViewRepresentable {
 
         func renderCurrentText(in textView: LiveRenderTextView) {
             guard let textStorage = textView.textStorage else { return }
-            let source = textStorage.string
+            // D17: render from `document.source` (the canonical
+            // markdown), NOT from `textStorage.string`. After the user
+            // types in a cell, storage's text differs from source for
+            // the table region; rendering from storage here would
+            // double-encode. The renderer is called only on full
+            // refresh paths (initial open, external file change), so
+            // pulling source directly is the right semantic.
+            let source = document.source
             let result = document.documentType.render(source)
 
-            // Capture scroll Y BEFORE the storage edit. The full-storage
-            // re-attribute below causes TextKit 2 to re-fragment the
-            // entire document, which moves the visible viewport. Without
-            // this preserve+restore, every keystroke can jump the scroll
-            // position by hundreds of points (D15 fix, 2026-04-26).
-            let preservedScrollY: CGFloat? = textView.enclosingScrollView
-                .map { $0.contentView.bounds.origin.y }
+            // Preserve the user's selection across the storage replace
+            // so cursor position is stable when an external edit fires
+            // a re-render.
+            let prevSelection = textView.selectedRange()
 
             textStorage.beginEditing()
-            let fullRange = NSRange(location: 0, length: textStorage.length)
-            textStorage.setAttributes([
-                .font: Typography.baseFont,
-                .foregroundColor: NSColor.labelColor
-            ], range: fullRange)
-            for assignment in result.assignments {
-                let clipped = NSIntersectionRange(assignment.range, fullRange)
-                if clipped.length > 0 {
-                    textStorage.addAttributes(assignment.attributes, range: clipped)
-                }
-            }
+            textStorage.setAttributedString(result.attributedString)
             textStorage.endEditing()
 
-            // D15.1: force TextKit 2 to lay out the ENTIRE document
-            // now, not lazily as scroll reveals new regions. Without
-            // this, fragments outside the initial viewport keep
-            // `layoutFragmentFrame.origin = (0,0)` until the viewport
-            // reaches them — and during the transition the user sees
-            // blank space where the table should be (CD repro:
-            // scroll one detent past the visible region → only the
-            // active cell-edit overlay renders, surrounding rows are
-            // missing for one frame). Up-front full layout is O(N)
-            // on the doc but amortizes across the whole session.
-            if let tlm = textView.textLayoutManager,
-               let tcm = tlm.textContentManager {
-                tlm.ensureLayout(for: tcm.documentRange)
-            }
+            // Clamp the selection to the new storage length and re-
+            // apply. This is best-effort — storage length may have
+            // changed (table replacements shift offsets); for D17's
+            // full-refresh paths the user wasn't actively typing so
+            // exact preservation isn't essential.
+            let clampedLoc = min(prevSelection.location, textStorage.length)
+            let clampedLen = min(prevSelection.length,
+                                 textStorage.length - clampedLoc)
+            textView.setSelectedRange(NSRange(location: clampedLoc,
+                                              length: clampedLen))
 
             cursorTracker.invalidate()
             cursorTracker.collapseAllDelimiters(in: textView)
             cursorTracker.updateVisibility(in: textView)
-
-            // Restore scroll Y on the next runloop tick so layout
-            // settles before we override. Skip if the restore would
-            // overshoot the document height (e.g., text was deleted).
-            if let scrollView = textView.enclosingScrollView,
-               let target = preservedScrollY {
-                DispatchQueue.main.async {
-                    let docHeight = scrollView.documentView?.frame.size.height
-                        ?? scrollView.contentView.bounds.size.height
-                    let visibleH = scrollView.contentView.bounds.size.height
-                    let maxY = max(0, docHeight - visibleH)
-                    let clampedY = min(max(0, target), maxY)
-                    scrollView.contentView.scroll(
-                        to: NSPoint(x: scrollView.contentView.bounds.origin.x,
-                                    y: clampedY))
-                    scrollView.reflectScrolledClipView(scrollView.contentView)
-                }
-            }
         }
     }
 }

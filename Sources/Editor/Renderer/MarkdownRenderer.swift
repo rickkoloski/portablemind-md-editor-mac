@@ -38,7 +38,116 @@ final class MarkdownRenderer {
         let document = Document(parsing: source)
         visitor.walk(document)
 
-        return RenderResult(assignments: visitor.assignments, spans: visitor.spans)
+        let attributedString = buildAttributedString(
+            source: source,
+            nsSource: nsSource,
+            document: document,
+            converter: converter,
+            assignments: visitor.assignments)
+        return RenderResult(
+            assignments: visitor.assignments,
+            spans: visitor.spans,
+            attributedString: attributedString)
+    }
+
+    /// D17 — assemble the full display attributed string for the editor.
+    /// Steps:
+    ///   1. Seed a mutable string with `source` and base attributes.
+    ///   2. Apply each `AttributeAssignment` at source-coord ranges.
+    ///   3. Tag every paragraph with `paragraphSourceRangeKey` so the
+    ///      coordinator's `textDidChange` can splice user edits back
+    ///      into `document.source`.
+    ///   4. Walk markdown tables in reverse document order, replacing
+    ///      each table's source range with cell paragraphs (TK1
+    ///      NSTextTable). Reverse order keeps earlier replacements
+    ///      from shifting later table source positions.
+    private func buildAttributedString(source: String,
+                                       nsSource: NSString,
+                                       document: Document,
+                                       converter: SourceLocationConverter,
+                                       assignments: [AttributeAssignment]) -> NSAttributedString {
+        // Step 1 + 2.
+        let mutable = NSMutableAttributedString(string: source)
+        for assignment in assignments {
+            let clipped = NSIntersectionRange(
+                assignment.range,
+                NSRange(location: 0, length: mutable.length))
+            if clipped.length > 0 {
+                mutable.addAttributes(assignment.attributes, range: clipped)
+            }
+        }
+
+        // Step 3 — tag each source paragraph with its own source range.
+        // Walk newline boundaries; any non-empty span is a paragraph.
+        let newline = unichar(UnicodeScalar("\n").value)
+        var i = 0
+        var paraStart = 0
+        let n = nsSource.length
+        while i < n {
+            if nsSource.character(at: i) == newline {
+                if i > paraStart {
+                    let r = NSRange(location: paraStart, length: i - paraStart)
+                    mutable.addAttribute(
+                        TableAttributeKeys.paragraphSourceRangeKey,
+                        value: NSValue(range: r),
+                        range: r)
+                }
+                paraStart = i + 1
+            }
+            i += 1
+        }
+        // Tail paragraph (no trailing newline).
+        if paraStart < n {
+            let r = NSRange(location: paraStart, length: n - paraStart)
+            mutable.addAttribute(
+                TableAttributeKeys.paragraphSourceRangeKey,
+                value: NSValue(range: r),
+                range: r)
+        }
+
+        // Step 4 — replace tables back-to-front.
+        let tables: [Table] = collectTopLevelTables(in: document)
+        for table in tables.reversed() {
+            guard let sourceRange = table.range else { continue }
+            guard let nsRange = converter.nsRange(for: sourceRange) else { continue }
+            // Clamp to actual line bounds; swift-markdown's range can
+            // overshoot into the next paragraph by one char.
+            let clamped = clampToLineBounds(nsRange, in: nsSource)
+            guard clamped.length > 0,
+                  NSMaxRange(clamped) <= mutable.length else { continue }
+            let cellsAS = TK1TableBuilder.build(
+                table: table,
+                tableSourceRange: clamped,
+                nsSource: nsSource)
+            mutable.replaceCharacters(in: clamped, with: cellsAS)
+        }
+        return mutable
+    }
+
+    private func collectTopLevelTables(in document: Document) -> [Table] {
+        var out: [Table] = []
+        for child in document.children {
+            if let t = child as? Table { out.append(t) }
+        }
+        return out
+    }
+
+    private func clampToLineBounds(_ range: NSRange, in nsSource: NSString) -> NSRange {
+        let n = nsSource.length
+        var loc = range.location
+        var endLoc = NSMaxRange(range)
+        // Trim trailing whitespace / newlines that swift-markdown may
+        // include past the table's last body row.
+        while endLoc > loc, endLoc - 1 < n,
+              isLineEndChar(nsSource.character(at: endLoc - 1)) {
+            endLoc -= 1
+        }
+        if loc > endLoc { loc = endLoc }
+        return NSRange(location: loc, length: endLoc - loc)
+    }
+
+    private func isLineEndChar(_ ch: unichar) -> Bool {
+        ch == 0x0A || ch == 0x0D    // LF, CR
     }
 }
 

@@ -28,7 +28,15 @@ struct SyntaxSpan {
 /// The output of `DocumentType.render(_:)` — shared across the
 /// document-type registry so future types (JSON, YAML, workflow graphs)
 /// can plug in without markdown-specific coupling.
+///
+/// **D17**: `attributedString` is the canonical render output. The
+/// editor coordinator calls `textStorage.setAttributedString(...)`
+/// with this value; storage is replaced wholesale, not incrementally
+/// patched. `assignments` and `spans` remain for the cursor-line
+/// tracker and any document type that still wants the
+/// attribute-merging path; markdown produces both for back-compat.
 struct RenderResult {
     let assignments: [AttributeAssignment]
     let spans: [SyntaxSpan]
+    let attributedString: NSAttributedString
 }

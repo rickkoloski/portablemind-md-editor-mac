@@ -44,15 +44,17 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
               colIdx < layout.contentWidths.count
         else { return }
 
-        // Compute the cell's view-coord rect.
-        // fragmentFrame is in the text-view's text-container coords.
-        // textContainerInset shifts container coords to text-view coords.
+        // Compute the cell's full rect in text-view coords (the cell
+        // INCLUDING its cellInset gutter, so the active-cell border
+        // wraps the entire cell box). Text inside the overlay aligns
+        // with the host's cell rendering because we set the overlay's
+        // textContainerInset = cellInset below.
         let inset = host.textContainerInset
-        let cellFrameInTV = CGRect(
-            x: fragmentFrame.origin.x + layout.columnLeadingX[colIdx] + inset.width,
-            y: fragmentFrame.origin.y + layout.cellInset.top + inset.height,
-            width: layout.contentWidths[colIdx],
-            height: fragmentFrame.size.height - layout.cellInset.top - layout.cellInset.bottom)
+        let cellLeft = fragmentFrame.origin.x + layout.columnLeadingX[colIdx] - layout.cellInset.left + inset.width
+        let cellTop = fragmentFrame.origin.y + inset.height
+        let cellWidth = layout.contentWidths[colIdx] + layout.cellInset.left + layout.cellInset.right
+        let cellHeight = fragmentFrame.size.height
+        let cellFrameInTV = CGRect(x: cellLeft, y: cellTop, width: cellWidth, height: cellHeight)
 
         // Get the cell's source content as a string. Use the cell's source
         // range so we capture what's actually in the markdown buffer.
@@ -65,7 +67,10 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
 
         // Construct overlay (or reuse if existing — we kill+recreate
         // here for spike simplicity; production may pool).
-        let textContainer = NSTextContainer(size: CGSize(width: cellFrameInTV.size.width, height: CGFloat.greatestFiniteMagnitude))
+        // Container width = content width (column width); the overlay's
+        // textContainerInset adds cellInset.left + .right horizontally
+        // to bring total inner width up to the cell rect's width.
+        let textContainer = NSTextContainer(size: CGSize(width: layout.contentWidths[colIdx], height: CGFloat.greatestFiniteMagnitude))
         textContainer.widthTracksTextView = true
         textContainer.lineFragmentPadding = 0
 
@@ -87,6 +92,9 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
         ov.isVerticallyResizable = false
         ov.isHorizontallyResizable = false
         ov.autoresizingMask = []
+        // Match host's cellInset so text aligns with the host cell rendering.
+        ov.textContainerInset = NSSize(width: layout.cellInset.left,
+                                       height: layout.cellInset.top)
         host.addSubview(ov)
         ov.frame = cellFrameInTV
         let safeIdx = max(0, min(localCaretIndex, cellSource.count))

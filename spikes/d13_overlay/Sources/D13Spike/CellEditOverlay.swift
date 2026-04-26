@@ -29,13 +29,18 @@ final class CellEditOverlay: NSTextView {
         allowsUndo = true
         drawsBackground = true
         backgroundColor = .textBackgroundColor
+        // textContainerInset is set per-show by the controller to match
+        // the cell's cellInset, so text inside the overlay aligns with
+        // the host's cell rendering.
         textContainerInset = .zero
         textContainer?.lineFragmentPadding = 0
         textContainer?.widthTracksTextView = true
-        // No border ring — visually we want to blend with the cell.
+        // Active-cell frame — Numbers/Excel pattern. Border thickness
+        // and color tuned by the controller per-show.
         wantsLayer = true
         layer?.borderColor = NSColor.controlAccentColor.cgColor
-        layer?.borderWidth = 1.5
+        layer?.borderWidth = 2.5
+        layer?.cornerRadius = 0
     }
 
     override func keyDown(with event: NSEvent) {

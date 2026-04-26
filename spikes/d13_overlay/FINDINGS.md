@@ -110,9 +110,43 @@ Production merge can use this exact algorithm. No font-metric tuning knobs neede
 
 ---
 
-## Tier 3 — Visual continuity
+## Tier 3 — Visual continuity + active-cell affordance ✅
 
-**Status:** Not started.
+**Status:** GREEN.
+
+### What changed from spec §3.7 (original)
+
+CD proposed (2026-04-26): instead of "no border on overlay", use a **2.5 pt active-accent border around the full cell box** as the user's "I'm editing this cell" signal — Numbers/Excel pattern. Validated in spike; production spec §3.7 updated.
+
+### Implementation
+
+- Overlay frame = full cell rect (`cellInset` NOT subtracted).
+  - x = `fragment.x + columnLeadingX[col] - cellInset.left`
+  - y = `fragment.y` (top of fragment)
+  - width = `contentWidths[col] + cellInset.left + cellInset.right`
+  - height = `fragment.height`
+- Overlay `textContainerInset = NSSize(width: cellInset.left, height: cellInset.top)` — text drawn at exactly the same screen coords as the host's `drawCells` puts it.
+- Overlay text container width = `contentWidths[col]` so wrapping matches host.
+- `layer.borderWidth = 2.5`, `layer.borderColor = NSColor.controlAccentColor.cgColor`. Border draws inside the cellInset gutter, doesn't shift text.
+
+### Visual confirmation
+
+Snapshot at `spikes/d13_overlay/` shows:
+- Wrapped Description cell with thick blue accent border wrapping the full cell box.
+- Three wrapped visual lines visible inside the overlay (line 3 was clipped in the pre-§3.7-update design).
+- Caret on line 2 between 'a' and 'c' in "wrap a|cross" (Tier 2 caret-43 case).
+- Adjacent cells (Status, Short, etc.) untouched.
+- Text in the active cell sits at the exact same screen coords as in adjacent un-active cells.
+
+### Production-relevant insights
+
+1. **NSView CALayer border draws INSIDE the frame bounds**, overlapping with the area where `textContainerInset` would otherwise allow text. Since we set `textContainerInset = cellInset` and `cellInset.left = 10pt`, a 2.5 pt border has 7.5 pt of clearance before reaching text — visually clean.
+
+2. **Active accent on macOS responds to system accent setting** (`NSColor.controlAccentColor`). Honoring this gets us blue / red / orange / etc. for free per user preference. Production should NOT hardcode blue.
+
+3. **Border thickness 2.5 pt is the spike's pick**; 2 pt and 3 pt both look acceptable. Production may want to tune to 2 pt for a slightly less aggressive feel — defer to design pass post-merge.
+
+4. **Header-cell variant**: header cells have a faint `secondaryLabelColor.withAlphaComponent(0.08)` background tint. The active-cell border treatment doesn't conflict — the tint is below the border. Verify in Tier 7 with a header-cell click test.
 
 ---
 

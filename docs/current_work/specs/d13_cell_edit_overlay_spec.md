@@ -117,18 +117,24 @@ Two options:
 
 V1: use option A.
 
-### 3.7 Visual continuity
+### 3.7 Visual continuity + active-cell affordance
 
-The overlay must look identical to the cell it replaces during the brief moment the cell is "selected for edit":
+The overlay must:
 
+1. **Preserve text position relative to the cell.** Text inside the overlay is drawn at the same screen coords as the host cell rendering. This is achieved by sizing the overlay frame to the FULL cell rect (including `cellInset` gutter), and setting the overlay's `textContainerInset = NSSize(width: cellInset.left, height: cellInset.top)`. The overlay's text container width = `contentWidths[col]` so wrapping matches the host's `cell.draw(with: drawRect, ...)` exactly.
+
+2. **Render an active-cell border** — Numbers / Excel pattern. A 2–3 pt stroke in `NSColor.controlAccentColor` (or equivalent active accent) drawn at the overlay's frame edge, wrapping the full cell box. The stroke draws inside the cell's `cellInset` gutter so it does not push text. This is the user's "I'm editing this cell" signal, replacing the inferred-from-caret-only signal that simpler designs use.
+
+Other style:
 - Same font (`TableLayout.bodyFont` for body cells, `headerFont` for header cells).
-- Same `foregroundColor` (NSColor.labelColor).
-- No border on the overlay (the cell's grid-divider already provides the visual frame).
-- Same vertical alignment (top-padded by `cellInset.top`).
-- White / clear background (matches the cell's lack-of-fill).
+- Same `foregroundColor` (`NSColor.labelColor`).
+- Same vertical alignment (top-padded by `cellInset.top` via `textContainerInset`).
+- Background = `NSColor.textBackgroundColor` (matches the host's effective background).
 - Caret color matches NSTextView default insertion point.
 
-Acceptance: a screenshot taken with the overlay over a cell should be visually indistinguishable from the cell as it would appear without the overlay (modulo the active caret).
+Acceptance: a screenshot with the overlay active should differ from the un-active cell only in (a) the active accent border around the cell box, and (b) the active caret. Text position must NOT shift between active and un-active states.
+
+Validated in `spikes/d13_overlay/` Tier 2/3.
 
 ### 3.8 Multi-cell selection
 

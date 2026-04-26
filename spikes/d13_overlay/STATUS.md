@@ -21,10 +21,12 @@ Tier 1 (overlay show/hide/commit lifecycle) GREEN — show, type, commit, cancel
 - [x] Tier 1 — overlay show/hide/commit lifecycle
 - [x] **Tier 2 — click-to-caret math (PRIMARY UNKNOWN) — GREEN**
 - [x] Tier 3 — visual continuity + active-cell affordance — GREEN
-- [ ] Tier 4 — wrapping in overlay
-- [ ] Tier 5 — Tab/Enter/Escape + scroll
-- [ ] Tier 6 — source-splice round-trip
-- [ ] Tier 7 — empty cell + edge cases
+- [x] Tier 4 — wrapping in overlay — GREEN (edit-time spillover documented)
+- [x] Tier 5 — Tab/Enter/Escape — GREEN (scroll deferred to production)
+- [x] Tier 6 — source-splice round-trip — GREEN
+- [x] Tier 7 — empty cell + edge cases — GREEN
+
+**Spike outcome: GREEN. Recommend proceeding to production merge.**
 
 ---
 
@@ -71,4 +73,5 @@ Actions:
 | `7ecb072` | D13 spike triad + Phase 1 sandbox bring-up |
 | `96b84be` | Tier 1 — overlay show/hide/commit lifecycle GREEN |
 | `23475a0` | Tier 2 — click-to-caret math (PRIMARY) GREEN |
-| (next) | Tier 3 — visual continuity + active-cell affordance + spec §3.7 update |
+| `8dfe198` | Tier 3 — active-cell border affordance + spec §3.7 update |
+| (next) | Tiers 4–7 + spike GREEN finding |

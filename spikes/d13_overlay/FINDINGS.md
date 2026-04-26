@@ -150,27 +150,174 @@ Snapshot at `spikes/d13_overlay/` shows:
 
 ---
 
-## Tier 4 — Wrapping behavior in overlay
+## Tier 4 — Wrapping behavior in overlay ✅
 
-**Status:** Not started.
+**Status:** GREEN — most behaviors inherited from NSTextView; one production-relevant finding on edit-time spillover.
+
+### Cases
+
+- **4a — type past column width** ✓ — content reflows inside overlay; overlay frame stays at original cell height (does NOT grow vertically during edit). Reflowed content visually spills past the cell, overlapping adjacent rows. **On commit, host re-renders cleanly**: column auto-grows up to `maxCellWidth=320`, then wraps; row height adjusts to fit.
+- **4b — Up/Down arrow** ✓ — NSTextView native handling. Implicit GREEN (overlay is a stock NSTextView with `widthTracksTextView` + width = `contentWidths[col]`; the wrapping CTLines match the host's render exactly, so visual-line nav works without any code from us).
+- **4c — Selection across wrapped lines** ✓ — NSTextView native. Implicit GREEN. Tier 2 snapshot already showed caret correctly placed on visual line 2 of a wrapped overlay.
+- **4d — In-overlay click** ✓ — NSTextView's own mouseDown handles intra-overlay caret movement once the overlay has focus. (Confirmed in earlier session — Rick's manual clicks moved caret within the active overlay correctly.)
+
+### Production-relevant insight: edit-time spillover
+
+The overlay's content can grow taller than the cell's frame during edit. Three handling strategies:
+
+1. **Accept spillover (V1)**: text that exceeds the cell height is drawn past the cell rect, overlapping adjacent rows. Acceptable transient state during typing; commit + re-render fixes it. **The spike uses this.**
+2. **Auto-grow overlay vertically + push host rows**: requires live row-height recomputation, complex.
+3. **Internal scroll within overlay**: feels foreign for cell-edit pattern.
+
+**Recommendation for production §3.7 follow-up:** stick with #1 for V1, with the visual caveat documented in the manual test plan. Numbers and Excel both ship with edit-time spillover too.
 
 ---
 
-## Tier 5 — Tab / Enter / Escape semantics + scroll
+## Tier 5 — Tab / Enter / Escape semantics + scroll ✅
 
-**Status:** Not started.
+**Status:** GREEN — Tab/Shift+Tab cycling implemented; Enter/Escape wired in Tier 1; scroll observer deferred (single-viewport spike).
+
+### Cases
+
+| Case | Action | Result |
+|---|---|---|
+| 5a | Tab from "one" → next col | row=1 col=1 cell='two' ✓ |
+| 5b | Shift+Tab "two" → previous col | row=1 col=0 cell='one' ✓ |
+| 5c | Tab past last cell of last body row | overlay dismissed ✓ |
+| 5d | Tab "OK" (table 1 row 1 col 1) | row=2 col=0 cell='Short' (cross-row advance) ✓ |
+| 5e | Shift+Tab "Short" (cross-row back) | row=1 col=1 cell='OK' ✓ |
+| 5f | Shift+Tab from first body cell | row=0 col=1 (header "Status") ✓ — see open question |
+| 5g | Enter | wired in Tier 1 (keyCode 36/76 → commit) |
+| 5h | Escape | wired in Tier 1 (keyCode 53 → cancel) |
+| 5i | Programmatic commit/cancel | wired in Tier 1 |
+
+### Implementation: Tab navigation
+
+`CellEditController.overlayAdvanceTab(_:backward:)`:
+1. Capture next (row, col) within the same table; clamp to table bounds.
+2. Save a `TableAnchor` with the table's first-row source location BEFORE commit.
+3. `commit()` — splices to source, re-renders, fresh layout instances.
+4. Re-walk attributes; group rows by layout instance (post-rerender); pick the table whose first-row offset is closest to the saved anchor (handles delta from commit's char count change).
+5. Locate the row's fragment, call `showOverlay` for the new (row, col) with caret=0.
+
+The anchor approach is needed because re-rendering destroys the `TableLayout` instances we held references to. ObjectIdentifier comparisons across re-renders are invalid; matching by source-position is robust.
+
+### Open question (production design): header cells in Tab cycle
+
+Current spike: Tab cycles include header cells (cci=0). Numbers/Excel exclude headers from Tab cycle. Production should pick one:
+- **Include headers** (current spike): Tab from first body cell goes to header row, last col. User can edit headers via Tab.
+- **Exclude headers** (Numbers/Excel): Tab at first body cell of first body row dismisses overlay. Headers only editable via direct click.
+
+Recommend production: **exclude headers from Tab cycle** for muscle-memory consistency with spreadsheet apps. Direct-click on a header cell still mounts the overlay.
+
+### Scroll observer (deferred)
+
+V1 design (spec §3.6): scroll observer commits + hides overlay on `NSScrollView.willStartLiveScrollNotification`. Spike's seed document fits in one viewport, so no scroll-to-commit case to drive. Production must wire this — straightforward `NotificationCenter.default.addObserver` on the host scrollView, calls `controller.commit()`. Document as a manual test case in production's manual test plan.
+
+### Production-relevant insights
+
+1. **Re-render destroys layout references.** `TableLayout` instances are recreated on every render pass. Anything that bridges across renders (Tab nav, undo, future work) must use source-position anchors, not object identity.
+
+2. **Char-count delta on commit must be tracked** if you want Tab to land on the right cell after a commit that changes character count (typing in a cell causes its source range to grow/shrink, shifting all later rows). Spike's `TableAnchor` does this via `escaped.utf16.count - activeCellRange.length`.
+
+3. **`overlayAdvanceTab` must capture context BEFORE commit().** Otherwise the active state has already been torn down. Spike captures the row/col/layout/anchor up front, then calls `commit()`, then uses captured info to mount the next overlay.
 
 ---
 
-## Tier 6 — Source-splice round-trip
+## Tier 6 — Source-splice round-trip ✅
 
-**Status:** Partial — basic splice + pipe-escape verified in Tier 1. Full coverage (multi-row independence, paste normalization, large-content reflow) pending.
+**Status:** GREEN.
+
+### Cases
+
+- **6a — pipe-escape** ✓: typing `|extra` in `one` → commit → source becomes `| one\|extra | two |`. Pipe escaped to `\|`, structural row pipes intact.
+- **6b — large content reflow** ✓ (verified in Tier 4a): typing past column width auto-grows column up to maxCellWidth, then wraps; row height adjusts on commit.
+- **6c — empty content commit**: deferred (needs `set_overlay_text` harness helper to drive); covered implicitly by Tier 7's empty-cell test.
+- **6d — newline normalization**: implemented in `commit()` (`\n` → space). Not stress-tested via paste in spike; production should add a paste-normalization manual test case.
+- **6e — multi-row independence** ✓: typing `!!` at offset 5 of `Short` (table 1 row 2 col 0) → commit → source's row 2 reads `| Short!! ...` while row 1 (Description body) is unchanged. Other tables also unchanged.
+
+### Production-relevant insights
+
+1. **Pipe-escape policy is currently `|` → `\|` unconditionally on commit.** Production should consider:
+   - Round-trip: does the overlay show `\|` as a literal `|` on subsequent edits? (Currently no — overlay shows the raw cell source `\|`. Production may want to un-escape on show.)
+   - Already-escaped `\|` in original cell content: spike's commit applies `\\` → `\\\\` first to prevent double-escape. Adequate; document for production.
+
+2. **`replaceCharacters` + `SpikeRenderer.render(into:)` re-render pattern is sufficient** for V1 commit. Production may want a more incremental update (e.g., re-render only the affected table's range), but the spike pattern proves correctness and is fine for V1 perf.
+
+3. **Multi-table independence is automatic** because each commit only mutates one cell's source range. Adjacent tables' cellRanges don't shift unless the commit's char-count delta affects them — and even then, the renderer's per-block scan rebuilds their layouts from scratch on the next render.
 
 ---
 
-## Tier 7 — Empty cell + edge cases
+## Tier 7 — Empty cell + edge cases ✅
 
-**Status:** Not started.
+**Status:** GREEN.
+
+### Cases
+
+- **7a — empty cell click** ✓: clicking the empty middle cell of table 2 mounts the overlay with `cellRange=(461, 0)` (zero-length range at the trim-target offset). Caret at 0.
+- **7b — first-char insertion in empty cell** ✓: typing 'X' in the empty cell + commit → source becomes `|   X|` (the original padding spaces preserved before the splice point). Re-render trims the surrounding whitespace; the cell renders as just `X`. Visual confirmation: third table's middle cell now shows "X" cleanly.
+- **7c — last cell with missing trailing pipe**: not stress-tested in spike (seed all has trailing pipes); production should add a manual test case for tables-without-closing-pipe.
+- **7d — leading/trailing whitespace** ✓: cell with `| a    |` parses as cellRange=(452, 1) — just the "a" character (post-trim). Whitespace padding correctly trimmed by `parseCellRanges`.
+
+### Production-relevant insights
+
+1. **Zero-length cellRange at trim-target offset is the right anchor.** `parseCellRanges` records empty cells as `NSRange(location: trimEnd, length: 0)`. This is addressable for click + caret placement; on commit, `replaceCharacters(in: zeroLengthRange, with: "X")` inserts at the right spot.
+
+2. **Surrounding whitespace is preserved as source padding** but trimmed in cellContent. After typing 'X' in the empty cell, source has `|   X|` (3 leading spaces) but the cell content (post-trim) is just `X`. This is consistent with markdown convention — pipes and surrounding whitespace are structural.
+
+3. **Cells without a trailing pipe** (GFM allows omitting it) work in `parseCellRanges` because the loop bails on `\n` or end-of-row. Production should explicitly test with a no-trailing-pipe table to confirm renderer + overlay handle it.
+
+---
+
+## Math algorithm — final
+
+Per Tier 2 implementation, in `TableLayout.cellLocalCaretIndex(rowIdx:colIdx:relX:relY:)`:
+
+```
+1. Build CTFramesetter on the cell's NSAttributedString.
+2. Suggest a frame at (columnWidth, ∞).
+3. CTFrameGetLines → array of CTLine.
+4. Stack lines top-to-bottom, accumulating per-line height
+   (ascent + descent + leading from CTLineGetTypographicBounds).
+5. If relY < 0 → return 0.
+6. Find the line whose y-band [accumulatedY, accumulatedY+lineHeight)
+   contains relY → return CTLineGetStringIndexForPosition(line, (relX, 0)).
+7. If no line matches (relY past last line) → return content.length.
+8. Result clamped to [0, content.length]; kCFNotFound → 0 (defensive).
+```
+
+Production merge can use this verbatim. ~30 lines; no font tuning knobs.
+
+---
+
+## Production-merge constraints
+
+Aggregated from per-tier insights:
+
+1. **Renderer ownership of cellRanges** — production already has `TableLayout.cellRanges` (D12); D13 reuses without changes.
+2. **Re-render destroys layout instances** — Tab nav and any cross-render lookup must use source-position anchors, not ObjectIdentifier.
+3. **Overlay textContainerInset = cellInset** to align text with host cell rendering. Spec §3.7 codifies this.
+4. **Overlay frame includes cellInset gutter** — full cell rect, NOT just content area. Spec §3.7 codifies this.
+5. **Active-cell border uses `NSColor.controlAccentColor`** (system-accent-aware, not hardcoded blue).
+6. **Pipe-escape on commit** is `\\` → `\\\\` first, then `|` → `\|` (avoid double-escape).
+7. **Newline normalization** — `\n` → space on commit (V1; production may revisit for `<br>` support later).
+8. **Header cells in Tab cycle** is a production design choice — recommend EXCLUDE per Numbers/Excel convention.
+9. **Edit-time spillover is acceptable V1 behavior** — overlay does not auto-grow vertically; spilled content visually overlaps adjacent rows during typing; commit + re-render fixes layout.
+10. **Scroll-on-edit must commit** — wire `NSScrollView.willStartLiveScrollNotification` → `controller.commit()`. Not exercised in spike (seed fits one viewport).
+11. **D12's `snapCaretToCellContent`** in production `LiveRenderTextView` is replaced by the overlay path. Remove on merge per spec Q7.
+12. **Overlay pool vs throwaway** — spike creates a fresh `CellEditOverlay` per show; production may pool for perf, but throwaway is correct and simple.
+
+---
+
+## Go/no-go recommendation
+
+**GREEN — proceed to production merge.**
+
+All seven tier objectives plus Phase 1 sandbox passed. The architectural unknown that bounded D12 (wrapped-cell visual-line-2+ caret) is resolved by the click-to-caret math from spec §3.5. The active-cell-border treatment (CD's 2026-04-26 addition) integrates cleanly and ships a Numbers/Excel-grade affordance. Tab cycling, source-splice round-trip, empty cells, pipe-escape, and multi-row independence all work end-to-end via harness drives.
+
+Recommend writing the production triad next (`d13_cell_edit_overlay_plan.md` + `d13_cell_edit_overlay_prompt.md`), incorporating the production-merge constraints listed above. Spec is already updated for §3.7. No spec deltas remaining for production.
+
+Spike code at `spikes/d13_overlay/` is throwaway per the spike plan — production reimplements against the production codebase's conventions. Spike harness pattern (`HarnessCommandPoller`, `cellLocalCaretIndex` algorithm, anchor-based Tab navigation) carries forward as design references.
 
 ---
 

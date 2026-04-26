@@ -18,6 +18,13 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
     private(set) var activeCellRange: NSRange = NSRange(location: 0, length: 0)
     private(set) var activeAttachment: TableRowAttachment?
 
+    /// Captured at commit time so Tab nav can find the same logical table
+    /// after the renderer creates fresh layout instances.
+    fileprivate var lastCommitAnchor: TableAnchor?
+    /// Where the active row's source range starts — used to compute the
+    /// table's first-row location at commit time.
+    private var activeTableFirstRowLoc: Int = 0
+
     init(hostView: NSTextView) {
         self.hostView = hostView
         super.init()
@@ -34,6 +41,21 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
                      tableRowSourceRange: NSRange,
                      localCaretIndex: Int,
                      fragmentFrame: CGRect) {
+        // Capture the table's first row source location for Tab anchor.
+        if let storage = hostView?.textStorage {
+            // Walk back from the active row to find the first row of this layout
+            // (= smallest offset of any row whose attachment.layout === attachment.layout).
+            var firstLoc = tableRowSourceRange.location
+            let scanRange = NSRange(location: 0, length: storage.length)
+            storage.enumerateAttribute(SpikeAttributeKeys.rowAttachmentKey,
+                                       in: scanRange, options: []) { value, range, _ in
+                if let att = value as? TableRowAttachment,
+                   ObjectIdentifier(att.layout) == ObjectIdentifier(attachment.layout) {
+                    firstLoc = min(firstLoc, range.location)
+                }
+            }
+            self.activeTableFirstRowLoc = firstLoc
+        }
         guard let host = hostView else { return }
         // If overlay is currently mounted in another cell, commit first.
         if isActive { commit() }
@@ -119,11 +141,18 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "|", with: "\\|")
             .replacingOccurrences(of: "\n", with: " ")
+        // Compute character delta to update the table-first-row anchor for
+        // Tab navigation (so post-commit row lookup finds the right table).
+        let delta = escaped.utf16.count - activeCellRange.length
+        let updatedFirstRowLoc = activeTableFirstRowLoc <= activeCellRange.location
+            ? activeTableFirstRowLoc
+            : activeTableFirstRowLoc + delta
+        lastCommitAnchor = TableAnchor(tableFirstRowLoc: updatedFirstRowLoc)
         if let storage = host.textStorage {
             storage.replaceCharacters(in: activeCellRange, with: escaped)
             SpikeRenderer.render(into: storage)
         }
-        spikeLog("overlay commit: range=\(activeCellRange) new=\(escaped)")
+        spikeLog("overlay commit: range=\(activeCellRange) new=\(escaped) anchor=\(updatedFirstRowLoc)")
         teardown()
     }
 
@@ -146,8 +175,134 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
 
     func overlayCommit(_ overlay: CellEditOverlay) { commit() }
     func overlayCancel(_ overlay: CellEditOverlay) { cancel() }
+
+    /// Tier 5: Tab / Shift+Tab navigation across cells.
+    /// Commits the current cell, then re-shows the overlay on the next
+    /// cell across rows (within the same table). At table boundaries
+    /// (last cell of last row, first cell of first row) commits and
+    /// dismisses the overlay rather than wrapping.
     func overlayAdvanceTab(_ overlay: CellEditOverlay, backward: Bool) {
-        // Tier 5 will implement Tab navigation. For Tier 1, just commit.
+        guard let attachment = activeAttachment,
+              let host = hostView,
+              let storage = host.textStorage,
+              let tlm = host.textLayoutManager else {
+            commit()
+            return
+        }
+        let curRow = activeRow
+        let curCol = activeCol
+        let layout = attachment.layout
+
+        // Compute next (row, col) within the same table.
+        var nextRow = curRow
+        var nextCol = curCol + (backward ? -1 : 1)
+        let colCount = layout.contentWidths.count
+        if nextCol >= colCount {
+            nextCol = 0
+            nextRow += 1
+        } else if nextCol < 0 {
+            nextCol = colCount - 1
+            nextRow -= 1
+        }
+
+        // Bounds: row must be a valid cellContentIndex.
+        if nextRow < 0 || nextRow >= layout.cellContentPerRow.count {
+            // Past table boundary — commit + dismiss.
+            commit()
+            return
+        }
+
+        // Commit current cell first; capture next-cell info BEFORE commit
+        // (commit() re-runs renderer which creates fresh layout instances).
         commit()
+
+        // Locate the new (rowIdx, colIdx) in the freshly-rendered storage.
+        // Walk attributes to find the row's TableRowAttachment whose layout
+        // is the new layout, kind != .separator, and cellContentIndex == nextRow.
+        var foundAttachment: TableRowAttachment?
+        var foundRowRange: NSRange?
+        let full = NSRange(location: 0, length: storage.length)
+        // We can't compare ObjectIdentifier because layouts were re-instantiated.
+        // Instead, identify by document position: find rows belonging to the
+        // table that contained the previously-edited cell. We use the original
+        // tableRowSourceRange's location as an anchor — find the layout whose
+        // first row starts at or after the smallest start offset that matches
+        // the previous table's first row offset.
+        //
+        // Simpler heuristic for the spike: collect all rows in document order,
+        // group by layout, find the group whose row offsets bracket the
+        // previously-active range location, then pick that group's nextRow'th
+        // body row at nextCol.
+        let originalRowLoc = activeCellRange.location  // captured BEFORE commit() ran. Wait — no, commit() teardown'd those.
+        _ = originalRowLoc
+        // Capture before commit() — we need to refactor to remember table identity.
+        // For the spike, take a simpler path: re-walk + match by table containing
+        // the activeRow/activeCol's pre-commit position.
+        // Pre-commit, we knew the table. Save it before commit:
+        //   (Refactored: see captureTableAnchor + restoreTableAnchor below.)
+        spikeLog("Tab nav: targetRow=\(nextRow) targetCol=\(nextCol) — using saved anchor")
+
+        // For spike: use the saved anchor (set at commit time before teardown).
+        guard let anchor = lastCommitAnchor else { return }
+        var rowsInTable: [(NSRange, TableRowAttachment)] = []
+        storage.enumerateAttribute(SpikeAttributeKeys.rowAttachmentKey,
+                                   in: full, options: []) { value, range, _ in
+            if let att = value as? TableRowAttachment {
+                rowsInTable.append((range, att))
+            }
+        }
+        // Group by layout instance (post-rerender layouts are fresh).
+        var byLayout: [(ObjectIdentifier, [(NSRange, TableRowAttachment)])] = []
+        for r in rowsInTable {
+            let id = ObjectIdentifier(r.1.layout)
+            if let idx = byLayout.firstIndex(where: { $0.0 == id }) {
+                byLayout[idx].1.append(r)
+            } else {
+                byLayout.append((id, [r]))
+            }
+        }
+        // Pick the table whose first row's start equals the anchor's tableFirstRowLoc,
+        // OR whose first row's start is closest to it (the row may have shifted by
+        // the commit's character delta).
+        var bestTable: [(NSRange, TableRowAttachment)]?
+        var bestDist = Int.max
+        for (_, rows) in byLayout {
+            guard let firstLoc = rows.first?.0.location else { continue }
+            let dist = abs(firstLoc - anchor.tableFirstRowLoc)
+            if dist < bestDist {
+                bestDist = dist
+                bestTable = rows
+            }
+        }
+        guard let tableRows = bestTable else { return }
+        let nonSepRows = tableRows.filter { $0.1.kind != .separator }
+        guard nextRow < nonSepRows.count,
+              let cci = nonSepRows[nextRow].1.cellContentIndex else { return }
+        foundAttachment = nonSepRows[nextRow].1
+        foundRowRange = nonSepRows[nextRow].0
+
+        guard let nextAttachment = foundAttachment,
+              let rowRange = foundRowRange else { return }
+
+        // Find the layout fragment for that row.
+        guard let docStart = tlm.textContentManager?.documentRange.location,
+              let rowStart = tlm.location(docStart, offsetBy: rowRange.location),
+              let frag = tlm.textLayoutFragment(for: rowStart) else { return }
+
+        // Initial caret = 0 for the new cell on Tab (matches Numbers).
+        showOverlay(
+            attachment: nextAttachment,
+            rowIdx: cci,
+            colIdx: nextCol,
+            tableRowSourceRange: rowRange,
+            localCaretIndex: 0,
+            fragmentFrame: frag.layoutFragmentFrame)
+        spikeLog("Tab advance: now showing row=\(cci) col=\(nextCol) cellRange=\(activeCellRange)")
     }
+}
+
+/// Anchor captured at commit time so post-rerender Tab navigation can
+/// locate the same logical table by its first-row offset.
+private struct TableAnchor {
+    let tableFirstRowLoc: Int
 }

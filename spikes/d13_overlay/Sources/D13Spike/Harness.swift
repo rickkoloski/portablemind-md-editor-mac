@@ -69,6 +69,9 @@ final class HarnessCommandPoller {
             cellEditController?.commit()
         case "cancel_overlay":
             cellEditController?.cancel()
+        case "advance_overlay_tab":
+            let backward = (obj["backward"] as? Bool) ?? false
+            advanceOverlayTab(backward: backward)
         case "type_in_overlay":
             if let s = obj["text"] as? String { typeInOverlay(s) }
         case "show_overlay_at_table_cell":
@@ -289,6 +292,14 @@ final class HarnessCommandPoller {
             tableRowSourceRange: rowRange,
             localCaretIndex: initialCaret ?? 0,
             fragmentFrame: frag.layoutFragmentFrame)
+    }
+
+    private func advanceOverlayTab(backward: Bool) {
+        guard let controller = cellEditController, controller.isActive,
+              let host = textView,
+              let ov = host.subviews.compactMap({ $0 as? CellEditOverlay }).first
+        else { return }
+        controller.overlayAdvanceTab(ov, backward: backward)
     }
 
     private func typeInOverlay(_ s: String) {

@@ -126,6 +126,8 @@ CD-driven decision after D15.1's belt-and-suspenders fixes still didn't fully re
 
 **Standard implications**: `engineering-standards_ref.md` § 2.2 prohibits *accidentally* falling into TK1 via `NSTextView.layoutManager` access. A deliberate choice is different — `stack-alternatives.md` will be updated to reflect the new direction if D16 GREEN.
 
+**TK2 fallback reference** (CD-flagged 2026-04-26): https://github.com/SuperSwiftMarkup/SuperSwiftMarkdownPrototype — author claims to have rendered/edited markdown tables in TextKit 2. Prototype, NOT a released product, so apply healthy skepticism. Status: not consulted before the D16 decision; held as a fallback IF the TK1 spike reveals dealbreakers and we have to return to TK2. Do NOT pre-emptively port their patterns into our code; treat as a known second option, not a first option.
+
 ---
 
 ## Artifacts that survive the pivot

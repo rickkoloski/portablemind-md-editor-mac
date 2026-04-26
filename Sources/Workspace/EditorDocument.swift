@@ -50,4 +50,51 @@ final class EditorDocument: ObservableObject, Identifiable {
     var displayName: String {
         url?.lastPathComponent ?? "Untitled"
     }
+
+    // MARK: - D14 Save / Save As
+
+    enum SaveError: LocalizedError {
+        case noURL
+        case writeFailed(URL, Error)
+
+        var errorDescription: String? {
+            switch self {
+            case .noURL:
+                return "Document has no file location yet — use Save As…"
+            case .writeFailed(let url, let underlying):
+                return "Couldn't save \(url.lastPathComponent): \(underlying.localizedDescription)"
+            }
+        }
+    }
+
+    /// Write the current `source` buffer to `url` as UTF-8. Pauses the
+    /// external-edit watcher around the write so our own change doesn't
+    /// echo back through `onChange` and overwrite a fresh user edit.
+    /// Throws `.noURL` if the document is untitled — caller should
+    /// fall back to `saveAs(to:)`.
+    func save() throws {
+        guard let url else {
+            throw SaveError.noURL
+        }
+        try writeAndRewatch(url: url)
+    }
+
+    /// Set a new URL for the document and write `source` there. Used
+    /// by Save As and by Save on an untitled document.
+    func saveAs(to newURL: URL) throws {
+        try writeAndRewatch(url: newURL)
+        // Update url after a successful write so a failed save doesn't
+        // leave the document mis-pointed at a non-existent file.
+        self.url = newURL
+    }
+
+    private func writeAndRewatch(url: URL) throws {
+        watcher.stop()
+        defer { watcher.watch(url: url) }
+        do {
+            try source.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            throw SaveError.writeFailed(url, error)
+        }
+    }
 }

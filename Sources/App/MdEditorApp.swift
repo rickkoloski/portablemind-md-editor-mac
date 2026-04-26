@@ -99,7 +99,56 @@ struct MdEditorApp: App {
                 Button("Open Folder…") { openFolder() }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
             }
+            // D14: Save / Save As. Operates on the focused document.
+            CommandGroup(replacing: .saveItem) {
+                Button("Save") { saveFocused() }
+                    .keyboardShortcut("s", modifiers: .command)
+                    .accessibilityIdentifier(AccessibilityIdentifiers.fileMenuSave)
+                Button("Save As…") { saveAsFocused() }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                    .accessibilityIdentifier(AccessibilityIdentifiers.fileMenuSaveAs)
+            }
         }
+    }
+
+    private func saveFocused() {
+        guard let doc = workspace.tabs.focused else { return }
+        if doc.url == nil {
+            // Untitled — Save behaves like Save As.
+            saveAsFocused()
+            return
+        }
+        do {
+            try doc.save()
+        } catch {
+            presentSaveError(error)
+        }
+    }
+
+    private func saveAsFocused() {
+        guard let doc = workspace.tabs.focused else { return }
+        let panel = NSSavePanel()
+        var types: [UTType] = [.plainText]
+        if let md = UTType(filenameExtension: "md") {
+            types.insert(md, at: 0)
+        }
+        panel.allowedContentTypes = types
+        panel.nameFieldStringValue = doc.url?.lastPathComponent ?? "Untitled.md"
+        if let parent = doc.url?.deletingLastPathComponent() {
+            panel.directoryURL = parent
+        }
+        guard panel.runModal() == .OK, let chosen = panel.url else { return }
+        do {
+            try doc.saveAs(to: chosen)
+        } catch {
+            presentSaveError(error)
+        }
+    }
+
+    private func presentSaveError(_ error: Error) {
+        let alert = NSAlert(error: error)
+        alert.messageText = "Save Failed"
+        alert.runModal()
     }
 
     private func openFolder() {

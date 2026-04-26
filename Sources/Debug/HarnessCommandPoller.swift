@@ -20,6 +20,11 @@
 //   {"action":"set_scroll",      "y":F}
 //   {"action":"insert_text",     "text":"...", "atSelection":true}
 //
+// D14 actions:
+//   {"action":"save_focused_doc"}      // → focused doc's url
+//   {"action":"save_as_focused_doc",   "newURL":"/path/to/new"}
+//   {"action":"focused_doc_info",      "path":"/tmp/mdeditor-doc.json"}
+//
 // D13 actions:
 //   {"action":"query_caret_for_click", "table":N, "row":N, "col":N,
 //                                      "relX":F, "relY":F,
@@ -81,10 +86,14 @@ final class HarnessCommandPoller {
             try? FileManager.default.removeItem(atPath: commandPath)
             return
         }
-        // Delete BEFORE executing so re-entry can't loop.
-        try? FileManager.default.removeItem(atPath: commandPath)
         NSLog("[TEST-HARNESS] action=\(action)")
         dispatch(action: action, params: obj)
+        // Remove AFTER dispatch so external drivers can use the command
+        // file's disappearance as a synchronization signal: file gone =
+        // command processed AND result file written. All dispatch
+        // handlers are synchronous (no async hops inside), so this is
+        // safe. (D14/D15 contract — 2026-04-26.)
+        try? FileManager.default.removeItem(atPath: commandPath)
     }
 
     private func dispatch(action: String, params: [String: Any]) {
@@ -132,6 +141,18 @@ final class HarnessCommandPoller {
                let tv = HarnessActiveSink.shared.activeTextView {
                 tv.insertText(text, replacementRange: tv.selectedRange())
             }
+        case "save_focused_doc":
+            saveFocusedDoc(to: params["path"] as? String
+                ?? "/tmp/mdeditor-save-result.json")
+        case "save_as_focused_doc":
+            if let newURL = params["newURL"] as? String {
+                saveAsFocusedDoc(newURLPath: newURL,
+                                 resultPath: params["path"] as? String
+                                    ?? "/tmp/mdeditor-save-result.json")
+            }
+        case "focused_doc_info":
+            writeFocusedDocInfo(to: params["path"] as? String
+                ?? "/tmp/mdeditor-doc.json")
         case "show_overlay_at_table_cell":
             if let tableIdx = params["table"] as? Int,
                let row = params["row"] as? Int,
@@ -601,6 +622,78 @@ final class HarnessCommandPoller {
     }
 
     private func writeJSONError(_ payload: [String: Any], to path: String) {
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    /// D14 harness — invoke save() on the focused doc and write
+    /// success/error info. Bypasses the menu chain so we can validate
+    /// the EditorDocument.save() write path without driving NSMenu.
+    private func saveFocusedDoc(to path: String) {
+        let store = WorkspaceStore.shared
+        guard let doc = store.tabs.focused else {
+            writeJSONError(["error": "no focused doc"], to: path)
+            return
+        }
+        do {
+            try doc.save()
+            let payload: [String: Any] = [
+                "saved": true,
+                "url": doc.url?.path ?? "",
+                "sourceLength": (doc.source as NSString).length
+            ]
+            if let data = try? JSONSerialization.data(
+                withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: URL(fileURLWithPath: path))
+            }
+        } catch {
+            writeJSONError([
+                "saved": false,
+                "error": "\(error)"
+            ], to: path)
+        }
+    }
+
+    private func saveAsFocusedDoc(newURLPath: String, resultPath: String) {
+        let store = WorkspaceStore.shared
+        guard let doc = store.tabs.focused else {
+            writeJSONError(["error": "no focused doc"], to: resultPath)
+            return
+        }
+        let newURL = URL(fileURLWithPath: newURLPath)
+        do {
+            try doc.saveAs(to: newURL)
+            let payload: [String: Any] = [
+                "saved": true,
+                "newURL": doc.url?.path ?? "",
+                "sourceLength": (doc.source as NSString).length
+            ]
+            if let data = try? JSONSerialization.data(
+                withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: URL(fileURLWithPath: resultPath))
+            }
+        } catch {
+            writeJSONError([
+                "saved": false,
+                "error": "\(error)"
+            ], to: resultPath)
+        }
+    }
+
+    private func writeFocusedDocInfo(to path: String) {
+        let store = WorkspaceStore.shared
+        guard let doc = store.tabs.focused else {
+            writeJSONError(["error": "no focused doc"], to: path)
+            return
+        }
+        let payload: [String: Any] = [
+            "url": doc.url?.path ?? "",
+            "displayName": doc.displayName,
+            "sourceLength": (doc.source as NSString).length,
+            "externallyDeleted": doc.externallyDeleted
+        ]
         if let data = try? JSONSerialization.data(
             withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: path))

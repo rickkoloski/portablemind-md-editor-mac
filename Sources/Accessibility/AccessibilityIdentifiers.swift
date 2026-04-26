@@ -43,6 +43,10 @@ enum AccessibilityIdentifiers {
     static let openFolderMenuItem = "md-editor.menu.file.open-folder"
     static let viewMenuToggleSidebar = "md-editor.menu.view.toggle-sidebar"
 
+    // File menu — Save / Save As (D14)
+    static let fileMenuSave = "md-editor.menu.file.save"
+    static let fileMenuSaveAs = "md-editor.menu.file.save-as"
+
     /// Per-row and per-tab identifiers use the URL path (for tree rows)
     /// or document UUID (for tabs) so tests can target a specific row
     /// or tab reliably.

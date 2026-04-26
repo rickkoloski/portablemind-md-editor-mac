@@ -280,13 +280,19 @@ private final class RenderVisitor {
             cellRanges: cellRanges
         )
 
-        // Build a paragraph style that reserves the target row height
-        // via minimumLineHeight. Without this, the underlying text
-        // line only has natural ~18pt height → clicks in the grid's
-        // "dead zone" between 18pt and our claimed layoutFragmentFrame
-        // height don't hit any line fragment and no caret placement
-        // happens. With the paragraph style, hit-testing bounds match
-        // the visual bounds.
+        // Paragraph style with min/max line height. Used ONLY for
+        // separator rows now: separators draw a thin divider, and
+        // the line fragment must be clamped to ~3pt or the natural
+        // ~18pt content line creates an unwanted gap. Header and
+        // body rows DON'T use this anymore — D8.1 introduced the
+        // clamp to fix a hit-test "dead zone" problem, but D12's
+        // CellSelectionDataSource routes clicks via fragment hit-
+        // test (textLayoutFragment(for: point)) which works on the
+        // layoutFragmentFrame regardless of line-fragment height.
+        // Keeping the clamp on header/body rows produces a tall
+        // caret that visually spans the whole row, even on multi-
+        // line wrapped cells where the user expects single-line
+        // caret height.
         func paragraphStyle(for height: CGFloat) -> NSParagraphStyle {
             let style = NSMutableParagraphStyle()
             style.minimumLineHeight = height
@@ -294,7 +300,6 @@ private final class RenderVisitor {
             return style
         }
         if let headerLineRange = headerLineRange {
-            let headerHeight = layout.rowHeight.first ?? 20
             assignments.append(AttributeAssignment(
                 range: headerLineRange,
                 attributes: [
@@ -303,8 +308,7 @@ private final class RenderVisitor {
                         kind: .header,
                         cellContentIndex: 0,
                         isFirstRow: true,
-                        isLastRow: false),
-                    .paragraphStyle: paragraphStyle(for: headerHeight)
+                        isLastRow: false)
                 ]
             ))
 
@@ -337,9 +341,6 @@ private final class RenderVisitor {
             guard let clamped = bodyClampedRanges[bodyIdx] else { continue }
             let rowIdx = bodyIdx + 1 // index 0 = header
             let isLast = rowIdx == totalRowCount - 1
-            let rowHeight = rowIdx < layout.rowHeight.count
-                ? layout.rowHeight[rowIdx]
-                : 20
             assignments.append(AttributeAssignment(
                 range: clamped,
                 attributes: [
@@ -348,8 +349,7 @@ private final class RenderVisitor {
                         kind: .body,
                         cellContentIndex: rowIdx,
                         isFirstRow: false,
-                        isLastRow: isLast),
-                    .paragraphStyle: paragraphStyle(for: rowHeight)
+                        isLastRow: isLast)
                 ]
             ))
         }

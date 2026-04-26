@@ -412,27 +412,21 @@ struct EditorContainer: NSViewRepresentable {
                 guard let attachment = value as? TableRowAttachment else { return }
                 if revealed {
                     storage.removeAttribute(.paragraphStyle, range: range)
-                } else {
-                    let height = paragraphHeight(for: attachment)
+                } else if attachment.kind == .separator {
+                    // Only separators get the line-height clamp on
+                    // un-reveal — they need a 3pt-clamped line for the
+                    // thin divider. Header/body rows DON'T need it
+                    // (D12 routes clicks via fragment hit-test rather
+                    // than line-fragment height; the clamp made the
+                    // caret + selection-highlight render as full row
+                    // height, which is wrong for multi-line cells).
                     let style = NSMutableParagraphStyle()
-                    style.minimumLineHeight = height
-                    style.maximumLineHeight = height
+                    style.minimumLineHeight = 3
+                    style.maximumLineHeight = 3
                     storage.addAttribute(.paragraphStyle,
                                          value: style,
                                          range: range)
                 }
-            }
-        }
-
-        private func paragraphHeight(for attachment: TableRowAttachment) -> CGFloat {
-            switch attachment.kind {
-            case .separator:
-                return 3
-            case .header, .body:
-                guard let idx = attachment.cellContentIndex,
-                      idx < attachment.layout.rowHeight.count
-                else { return 20 }
-                return attachment.layout.rowHeight[idx]
             }
         }
 

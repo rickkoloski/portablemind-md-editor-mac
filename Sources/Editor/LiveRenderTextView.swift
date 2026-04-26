@@ -25,11 +25,15 @@ final class LiveRenderTextView: NSTextView {
     /// class doesn't need to know about Coordinator internals.
     var onDoubleClickRevealRequest: ((TableRowAttachment) -> Void)?
 
+    /// D13: per-cell edit overlay controller. When set, single-click on
+    /// a table cell mounts the overlay rather than placing a flat caret.
+    weak var cellEditController: CellEditController?
+
     // MARK: - Mouse
 
     override func mouseDown(with event: NSEvent) {
         // Double-click on a table cell → request reveal of the row's
-        // table to source mode.
+        // table to source mode (D12 retained mechanism).
         if event.clickCount == 2,
            let tlm = textLayoutManager {
             let viewPoint = convert(event.locationInWindow, from: nil)
@@ -42,10 +46,86 @@ final class LiveRenderTextView: NSTextView {
                 return
             }
         }
+        // D13: single-click on a table cell → mount the edit overlay
+        // (replaces D12's snapCaretToCellContent path). If the row is
+        // in source-reveal mode (double-click triggered), or if the
+        // click isn't on a TableRowFragment, fall through to default.
+        if event.clickCount == 1,
+           let tlm = textLayoutManager,
+           let controller = cellEditController {
+            let viewPoint = convert(event.locationInWindow, from: nil)
+            let containerPoint = NSPoint(
+                x: viewPoint.x - textContainerInset.width,
+                y: viewPoint.y - textContainerInset.height)
+            if let frag = tlm.textLayoutFragment(for: containerPoint),
+               let row = frag as? TableRowFragment,
+               !isRowRevealed(row.attachment, in: tlm),
+               row.attachment.kind != .separator,
+               let cci = row.attachment.cellContentIndex,
+               cci < row.attachment.layout.cellContentPerRow.count {
+                showOverlay(for: row, at: containerPoint,
+                            controller: controller, tlm: tlm)
+                return
+            }
+        }
         super.mouseDown(with: event)
-        // Single-click → snap caret to cell content if it landed in
-        // a pipe/whitespace/empty-cell-gap region.
-        snapCaretToCellContent()
+    }
+
+    private func isRowRevealed(_ attachment: TableRowAttachment,
+                               in tlm: NSTextLayoutManager) -> Bool {
+        guard let delegate = tlm.delegate as? TableLayoutManagerDelegate else {
+            return false
+        }
+        return delegate.revealedTables.contains(ObjectIdentifier(attachment.layout))
+    }
+
+    /// Compute column from click x within the fragment, run click-to-caret
+    /// math (Phase 1 cellLocalCaretIndex), find the row's source range,
+    /// hand all of it to the controller.
+    private func showOverlay(for row: TableRowFragment,
+                             at containerPoint: NSPoint,
+                             controller: CellEditController,
+                             tlm: NSTextLayoutManager) {
+        let layout = row.attachment.layout
+        guard let cci = row.attachment.cellContentIndex else { return }
+        let frag = row
+        let fragFrame = frag.layoutFragmentFrame
+        let xInFrag = containerPoint.x - fragFrame.origin.x
+        var colIdx = -1
+        for c in 0..<layout.contentWidths.count {
+            let leftEdge = layout.columnLeadingX[c] - layout.cellInset.left
+            let rightEdge = layout.columnTrailingX[c] + layout.cellInset.right
+            if xInFrag >= leftEdge && xInFrag < rightEdge {
+                colIdx = c
+                break
+            }
+        }
+        guard colIdx >= 0 else { return }
+
+        // Phase 1 click-to-caret math.
+        let cellContentOriginX = fragFrame.origin.x + layout.columnLeadingX[colIdx]
+        let cellContentOriginY = fragFrame.origin.y + layout.cellInset.top
+        let relX = containerPoint.x - cellContentOriginX
+        let relY = containerPoint.y - cellContentOriginY
+        let localCaretIndex = layout.cellLocalCaretIndex(
+            rowIdx: cci, colIdx: colIdx, relX: relX, relY: relY)
+
+        // Compute the row's source range from the fragment's element range.
+        guard let element = frag.textElement,
+              let textRange = element.elementRange,
+              let docStart = tlm.textContentManager?.documentRange.location else {
+            return
+        }
+        let rowLoc = tlm.offset(from: docStart, to: textRange.location)
+        let rowLen = tlm.offset(from: textRange.location, to: textRange.endLocation)
+        let rowSourceRange = NSRange(location: rowLoc, length: rowLen)
+
+        controller.showOverlay(
+            attachment: row.attachment,
+            rowIdx: cci, colIdx: colIdx,
+            tableRowSourceRange: rowSourceRange,
+            localCaretIndex: localCaretIndex,
+            fragmentFrame: fragFrame)
     }
 
     // MARK: - Key navigation
@@ -227,38 +307,12 @@ final class LiveRenderTextView: NSTextView {
         return false
     }
 
-    // MARK: - Snap
-
-    /// Snap caret to a valid in-cell position. Called after the default
-    /// mouseDown click flow. If the caret landed in pipe / whitespace /
-    /// empty-cell-gap territory, snap to nearest cell-content edge.
-    private func snapCaretToCellContent() {
-        let sel = selectedRange()
-        if sel.length > 0 { return }
-        guard let row = currentTableRow(), !row.cells.isEmpty else { return }
-        let inAnyCell = row.cells.contains { cell in
-            sel.location >= cell.location
-                && sel.location <= cell.location + cell.length
-        }
-        if inAnyCell { return }
-        // Find nearest cell-content edge by source distance.
-        var best = sel.location
-        var bestDistance = Int.max
-        for cell in row.cells {
-            for candidate in [cell.location, cell.location + cell.length] {
-                let d = abs(sel.location - candidate)
-                if d < bestDistance {
-                    bestDistance = d
-                    best = candidate
-                }
-            }
-        }
-        if best != sel.location {
-            setSelectedRange(NSRange(location: best, length: 0))
-        }
-    }
-
     // MARK: - Row discovery
+    //
+    // D12's `snapCaretToCellContent` was removed in D13 — the cell-edit
+    // overlay path replaces it. Single-click in a cell now mounts the
+    // overlay; clicks outside cells go through default NSTextView
+    // handling.
 
     /// Build a TableRowInfo for the row currently containing the caret,
     /// or nil if the caret isn't inside a body / header table row.

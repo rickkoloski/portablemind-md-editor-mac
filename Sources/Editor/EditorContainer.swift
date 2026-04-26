@@ -92,8 +92,7 @@ struct EditorContainer: NSViewRepresentable {
                     }
                 })
             context.coordinator.cellEditController = editController
-            // textView.cellEditController is wired in Phase 3 when
-            // LiveRenderTextView gains the property + mouseDown integration.
+            textView.cellEditController = editController
             // TEST-HARNESS: register controller so harness actions can drive it.
             #if DEBUG
             HarnessCommandPoller.shared.cellEditController = editController

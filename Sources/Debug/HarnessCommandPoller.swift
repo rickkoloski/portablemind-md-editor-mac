@@ -27,6 +27,8 @@
 //   {"action":"set_overlay_text",  "text":"..."}
 //   {"action":"commit_overlay"}
 //   {"action":"cancel_overlay"}
+//   {"action":"simulate_click_at_table_cell", "table":N, "row":N, "col":N,
+//                                              "relX":F, "relY":F}
 //
 // Atomic file writes are required when the driver uses this poller —
 // we read once per tick and silently drop on JSON-parse fail (mirrors
@@ -126,6 +128,22 @@ final class HarnessCommandPoller {
             cellEditController?.commit()
         case "cancel_overlay":
             cellEditController?.cancel()
+        case "simulate_click_at_table_cell":
+            // D13 Phase 3 — simulate a real mouseDown on the cell at
+            // (table, row, col) at cell-content-local (relX, relY).
+            // Drives the production mouseDown path end-to-end without
+            // synthetic mouse events.
+            if let tableIdx = params["table"] as? Int,
+               let row = params["row"] as? Int,
+               let col = params["col"] as? Int {
+                let relX = (params["relX"] as? Double).map { CGFloat($0) }
+                    ?? CGFloat((params["relX"] as? Int) ?? 0)
+                let relY = (params["relY"] as? Double).map { CGFloat($0) }
+                    ?? CGFloat((params["relY"] as? Int) ?? 0)
+                simulateClickAtTableCell(
+                    tableIndex: tableIdx, rowIdx: row, colIdx: col,
+                    relX: relX, relY: relY)
+            }
         case "query_caret_for_click":
             // D13 Phase 1 — exercise TableLayout.cellLocalCaretIndex
             // without needing a full overlay mount.
@@ -285,6 +303,71 @@ final class HarnessCommandPoller {
               let ov = tv.subviews.compactMap({ $0 as? CellEditOverlay }).first
         else { return }
         ov.insertText(text, replacementRange: ov.selectedRange())
+    }
+
+    /// D13 Phase 3 — locate the cell, compute its container-coords
+    /// click point, build an NSEvent at that point, dispatch via the
+    /// text view's `mouseDown(with:)`. Drives the production mouseDown
+    /// integration end-to-end (cell hit-test, click-to-caret math,
+    /// overlay show) without depending on synthetic mouse input.
+    private func simulateClickAtTableCell(tableIndex: Int, rowIdx: Int,
+                                          colIdx: Int,
+                                          relX: CGFloat, relY: CGFloat) {
+        guard let tv = HarnessActiveSink.shared.activeTextView,
+              let storage = tv.textStorage,
+              let tlm = tv.textLayoutManager else { return }
+        // Walk unique TableLayouts in document order.
+        var layoutsByOrder: [(ObjectIdentifier, TableLayout, [(NSRange, TableRowAttachment)])] = []
+        storage.enumerateAttribute(
+            TableAttributeKeys.rowAttachmentKey,
+            in: NSRange(location: 0, length: storage.length),
+            options: []
+        ) { value, range, _ in
+            guard let att = value as? TableRowAttachment else { return }
+            let id = ObjectIdentifier(att.layout)
+            if let idx = layoutsByOrder.firstIndex(where: { $0.0 == id }) {
+                layoutsByOrder[idx].2.append((range, att))
+            } else {
+                layoutsByOrder.append((id, att.layout, [(range, att)]))
+            }
+        }
+        guard tableIndex < layoutsByOrder.count else { return }
+        let layout = layoutsByOrder[tableIndex].1
+        let rows = layoutsByOrder[tableIndex].2
+        let nonSep = rows.filter { $0.1.kind != .separator }
+        guard rowIdx < nonSep.count,
+              let cci = nonSep[rowIdx].1.cellContentIndex else { return }
+        let rowRange = nonSep[rowIdx].0
+        guard colIdx < layout.contentWidths.count,
+              let docStart = tlm.textContentManager?.documentRange.location,
+              let rowStart = tlm.location(docStart, offsetBy: rowRange.location),
+              let frag = tlm.textLayoutFragment(for: rowStart) else { return }
+
+        // Compute view-coord click point from cell-content-local (relX, relY).
+        let inset = tv.textContainerInset
+        let viewX = frag.layoutFragmentFrame.origin.x
+            + layout.columnLeadingX[colIdx] + relX + inset.width
+        let viewY = frag.layoutFragmentFrame.origin.y
+            + layout.cellInset.top + relY + inset.height
+
+        // Convert view coords to window coords (NSEvent expects window-local).
+        let viewPoint = NSPoint(x: viewX, y: viewY)
+        let windowPoint = tv.convert(viewPoint, to: nil)
+
+        // Construct a synthetic mouseDown event.
+        guard let event = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: windowPoint,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: tv.window?.windowNumber ?? 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0)
+        else { return }
+        tv.mouseDown(with: event)
+        NSLog("[TEST-HARNESS] simulate_click_at_table_cell → table=\(tableIndex) row=\(rowIdx) col=\(colIdx) viewPoint=\(viewPoint)")
     }
 
     private func setOverlayText(_ text: String) {

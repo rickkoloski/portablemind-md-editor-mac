@@ -21,6 +21,12 @@
 //   {"action":"query_caret_for_click", "table":N, "row":N, "col":N,
 //                                      "relX":F, "relY":F,
 //                                      "path":"/tmp/mdeditor-caret.json"}
+//   {"action":"show_overlay_at_table_cell", "table":N, "row":N, "col":N,
+//                                           "caret":N (optional)}
+//   {"action":"type_in_overlay",   "text":"..."}
+//   {"action":"set_overlay_text",  "text":"..."}
+//   {"action":"commit_overlay"}
+//   {"action":"cancel_overlay"}
 //
 // Atomic file writes are required when the driver uses this poller —
 // we read once per tick and silently drop on JSON-parse fail (mirrors
@@ -38,6 +44,10 @@ final class HarnessCommandPoller {
     private let commandPath = "/tmp/mdeditor-command.json"
     private var timer: Timer?
     private var started = false
+
+    /// D13 — set by EditorContainer.Coordinator at editor creation so
+    /// harness actions can drive overlay show/commit/cancel directly.
+    weak var cellEditController: CellEditController?
 
     private init() {}
 
@@ -95,6 +105,27 @@ final class HarnessCommandPoller {
                 let len = params["length"] as? Int ?? 0
                 tv.setSelectedRange(NSRange(location: loc, length: len))
             }
+        case "show_overlay_at_table_cell":
+            if let tableIdx = params["table"] as? Int,
+               let row = params["row"] as? Int,
+               let col = params["col"] as? Int {
+                let caret = params["caret"] as? Int
+                showOverlayAtTableCell(tableIndex: tableIdx,
+                                       rowIdx: row, colIdx: col,
+                                       initialCaret: caret)
+            }
+        case "type_in_overlay":
+            if let text = params["text"] as? String {
+                typeInOverlay(text)
+            }
+        case "set_overlay_text":
+            if let text = params["text"] as? String {
+                setOverlayText(text)
+            }
+        case "commit_overlay":
+            cellEditController?.commit()
+        case "cancel_overlay":
+            cellEditController?.cancel()
         case "query_caret_for_click":
             // D13 Phase 1 — exercise TableLayout.cellLocalCaretIndex
             // without needing a full overlay mount.
@@ -132,6 +163,19 @@ final class HarnessCommandPoller {
             "sourceLength": (source as NSString).length,
             "selection": ["location": sel.location, "length": sel.length]
         ]
+        // D13: surface overlay state so harness tests can verify
+        // show / commit / cancel lifecycle.
+        if let controller = cellEditController, controller.isActive {
+            payload["overlay"] = [
+                "active": true,
+                "row": controller.activeRow,
+                "col": controller.activeCol,
+                "cellRangeLocation": controller.activeCellRange.location,
+                "cellRangeLength": controller.activeCellRange.length
+            ]
+        } else {
+            payload["overlay"] = ["active": false]
+        }
         if let frame = tv.window?.frame {
             payload["windowFrame"] = [
                 "x": frame.origin.x, "y": frame.origin.y,
@@ -190,6 +234,65 @@ final class HarnessCommandPoller {
         guard let data = rep.representation(using: .png, properties: [:]) else { return }
         try? data.write(to: URL(fileURLWithPath: path))
         NSLog("[TEST-HARNESS] snapshot → \(path) (\(data.count) bytes)")
+    }
+
+    /// D13 Phase 2 — programmatically mount the overlay on the
+    /// (tableIndex, rowIdx, colIdx) cell. Bypasses screen-coord math
+    /// so harness tests don't depend on synthetic clicks.
+    private func showOverlayAtTableCell(tableIndex: Int, rowIdx: Int,
+                                        colIdx: Int, initialCaret: Int?) {
+        guard let tv = HarnessActiveSink.shared.activeTextView,
+              let storage = tv.textStorage,
+              let tlm = tv.textLayoutManager,
+              let controller = cellEditController else { return }
+        // Walk unique TableLayouts in document order, retain row attachments.
+        var layoutsByOrder: [(ObjectIdentifier, TableLayout, [(NSRange, TableRowAttachment)])] = []
+        storage.enumerateAttribute(
+            TableAttributeKeys.rowAttachmentKey,
+            in: NSRange(location: 0, length: storage.length),
+            options: []
+        ) { value, range, _ in
+            guard let att = value as? TableRowAttachment else { return }
+            let id = ObjectIdentifier(att.layout)
+            if let idx = layoutsByOrder.firstIndex(where: { $0.0 == id }) {
+                layoutsByOrder[idx].2.append((range, att))
+            } else {
+                layoutsByOrder.append((id, att.layout, [(range, att)]))
+            }
+        }
+        guard tableIndex < layoutsByOrder.count else { return }
+        let rows = layoutsByOrder[tableIndex].2
+        let nonSep = rows.filter { $0.1.kind != .separator }
+        guard rowIdx < nonSep.count,
+              let cci = nonSep[rowIdx].1.cellContentIndex else { return }
+        let (rowRange, attachment) = nonSep[rowIdx]
+
+        // Locate the row's fragment.
+        guard let docStart = tlm.textContentManager?.documentRange.location,
+              let rowStart = tlm.location(docStart, offsetBy: rowRange.location),
+              let frag = tlm.textLayoutFragment(for: rowStart) else { return }
+
+        controller.showOverlay(
+            attachment: attachment,
+            rowIdx: cci, colIdx: colIdx,
+            tableRowSourceRange: rowRange,
+            localCaretIndex: initialCaret ?? 0,
+            fragmentFrame: frag.layoutFragmentFrame)
+    }
+
+    private func typeInOverlay(_ text: String) {
+        guard let tv = HarnessActiveSink.shared.activeTextView,
+              let ov = tv.subviews.compactMap({ $0 as? CellEditOverlay }).first
+        else { return }
+        ov.insertText(text, replacementRange: ov.selectedRange())
+    }
+
+    private func setOverlayText(_ text: String) {
+        guard let tv = HarnessActiveSink.shared.activeTextView,
+              let ov = tv.subviews.compactMap({ $0 as? CellEditOverlay }).first
+        else { return }
+        ov.string = text
+        ov.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
     }
 
     /// D13 Phase 1 — locate the Nth distinct TableLayout by document

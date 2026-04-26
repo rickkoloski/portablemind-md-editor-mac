@@ -79,6 +79,25 @@ struct EditorContainer: NSViewRepresentable {
                  weak tv = textView] attachment in
                 coord?.revealRow(for: attachment, in: tv)
             }
+
+            // D13: per-cell edit overlay controller. Holds the
+            // singleton overlay; mounts on single-click of a cell.
+            // Render hook re-uses production's renderCurrentText so
+            // commit re-renders via the existing path.
+            let editController = CellEditController(
+                hostView: textView,
+                renderHook: { [weak coord = context.coordinator] tv in
+                    if let lrtv = tv as? LiveRenderTextView {
+                        coord?.renderCurrentText(in: lrtv)
+                    }
+                })
+            context.coordinator.cellEditController = editController
+            // textView.cellEditController is wired in Phase 3 when
+            // LiveRenderTextView gains the property + mouseDown integration.
+            // TEST-HARNESS: register controller so harness actions can drive it.
+            #if DEBUG
+            HarnessCommandPoller.shared.cellEditController = editController
+            #endif
         } else {
             NSLog("TEXTKIT2-WARNING: textLayoutManager is nil — NOT on TextKit 2 code path")
         }
@@ -152,6 +171,9 @@ struct EditorContainer: NSViewRepresentable {
         /// D12: strong ref so the custom NSTextSelectionDataSource
         /// stays alive (the navigation holds it weakly).
         var cellSelectionDataSource: CellSelectionDataSource?
+        /// D13: per-cell edit overlay controller. Mounts the overlay
+        /// on single-click of a table cell.
+        var cellEditController: CellEditController?
         let cursorTracker = CursorLineTracker()
         private let document: EditorDocument
         private var cancellables: Set<AnyCancellable> = []

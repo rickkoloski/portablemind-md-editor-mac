@@ -158,20 +158,70 @@ Double-click still drops to whole-row source mode (D12). Overlay shows on **sing
 
 The overlay's edits become part of the main `NSUndoManager`'s history once committed. One commit = one undoable operation: replace cell's source range with new content, or restore via inverse. Mid-edit (before commit), undo within the overlay undoes character-level changes in the overlay's local storage; that's fine.
 
+### 3.12 Modal popout fallback
+
+A second editing path exists alongside the overlay: a **centered modal window** containing a plain `NSTextView` showing the cell's source. This is the always-available power option AND the future home for content the overlay's math can't reason about (inline images, complex inline markdown, RTL, etc.).
+
+**V1 trigger:** explicit user choice via right-click menu on a cell. Menu item: "Edit Cell in Popout…". Auto-fallback on detected unhandled content is V1.x — defining "unhandled" requires the inline-markdown parser, which is deferred.
+
+**Modal window:**
+- Centered on the active screen, sized ~600 × 400 points (resizable).
+- Title: "Edit Cell — Row N, Column M" (or table name if available).
+- Content: a single `NSTextView` populated with the cell's source content (post `\|` → `|` un-escape, but otherwise raw markdown source).
+- "Save" button (or `⌘+Return`) commits; "Cancel" button (or `⌘+. / Escape`) discards.
+- No caret-position-from-click. Caret defaults to offset 0; or selects-all (Numbers convention). V1: caret at offset 0.
+- No active-cell border math; no fragment geometry; just plain text editing.
+
+**On commit:** apply the same pipe-escape (`|` → `\|`) + newline normalization (`\n` → space, V1) used by the overlay path. Splice into the cell's source range. Re-render.
+
+**On cancel:** discard the modal's edits. Source remains as it was when the modal opened.
+
+**Why the modal is useful even when overlay works:**
+- Larger editing surface for long content.
+- Predictable behavior for content the overlay can't visually align (inline images, etc.).
+- Future: rich-content editing toolbar lives here, not in the overlay (overlay stays simple).
+
+### 3.13 Handoff between overlay and modal
+
+Overlay and modal are non-mutually-exclusive paths but only ONE can be active at a time. Handoff rules:
+
+| Trigger | Active state | Behavior |
+|---|---|---|
+| Right-click on cell, no overlay active | (idle) | Right-click menu shows "Edit Cell in Popout…"; selecting opens modal directly. |
+| Right-click on a *different* cell while overlay active | overlay on cell A | Commit overlay on A first, then open modal on the right-clicked cell B. (Synchronous: commit must complete before modal mounts.) |
+| Right-click on the *same* cell while overlay active | overlay on cell A | "Edit Cell in Popout…" menu item omitted (or grayed). User must commit/cancel overlay first via Escape / Enter / click-out, then right-click again. |
+| Single-click on a cell while modal is open | modal on cell A | The modal is application-modal — single-click on the host editor is intercepted by the modal's session. Click on host has no effect until modal commits/cancels. (V1 treats the modal as truly modal; future could relax to detached-window per Numbers.) |
+
+The modal is the user-explicit escape hatch; the overlay is the default path. No automatic routing in V1.
+
 ---
 
 ## 4. Success criteria
 
+### Overlay path
+
 - [ ] **Single-click in a single-line cell** → overlay appears at the cell's bounds with caret at the click position; user can type, navigate within the cell with arrows, and commit by pressing Escape, Tab, or clicking out.
-- [ ] **Single-click on visual-line-2 of a wrapped cell** → overlay appears with caret on the wrapped line at the click x. User can edit anywhere in the cell. (THE primary D13 use case.)
+- [ ] **Single-click on visual-line-2 of a wrapped cell** → overlay appears with caret on the wrapped line at the click x. User can edit anywhere in the cell. (THE primary D13 use case — validated GREEN in `spikes/d13_overlay/` Tier 2.)
 - [ ] **Click anywhere in cell while overlay is already active in another cell** → first commit fires, then second show. No interleaved state.
-- [ ] **Tab / Shift+Tab inside overlay** → commits current cell, opens overlay on next/prev cell. Caret at start of the new cell.
+- [ ] **Tab / Shift+Tab inside overlay** → commits current cell, opens overlay on next/prev cell across rows. Caret at start of the new cell. At table boundaries: dismiss overlay (don't wrap).
+- [ ] **Enter** → commits + dismisses (V1 default per Q2).
 - [ ] **Escape** → cancels (discards overlay edits) and returns focus to main editor.
 - [ ] **Scroll while overlay active** → commits the overlay (V1 simple behavior).
-- [ ] **Visual** — overlay appearance is indistinguishable from cell rendering except for the active caret.
+- [ ] **Visual** — active cell shows a 2.5pt accent border; text position is identical to the un-active cell rendering (§3.7).
 - [ ] **Double-click** still drops to whole-row source mode (no regression).
+
+### Modal path
+
+- [ ] **Right-click on a cell** → context menu includes "Edit Cell in Popout…" item.
+- [ ] **Selecting "Edit Cell in Popout…"** → centered modal window opens with the cell's source content (post `\|` → `|` un-escape).
+- [ ] **Modal Save (or `⌘+Return`)** → commits with pipe-escape; source updates; modal closes.
+- [ ] **Modal Cancel (or Escape)** → discards; source unchanged; modal closes.
+- [ ] **Right-click while overlay is active on a different cell** → menu commits the active overlay first, then opens modal on the right-clicked cell.
+
+### Regression
+
 - [ ] **D8 grid rendering, D9 scroll-to-line, D10 line numbers, D11 CLI view-state, D12 cell-boundary nav between cells (no overlay active) all still work**.
-- [ ] `grep -r '\.layoutManager' Sources/` shows no new production references (§2.2).
+- [ ] `grep -r '\.layoutManager' Sources/` shows no new production references (engineering-standards §2.2).
 
 ---
 
@@ -196,13 +246,15 @@ The overlay's edits become part of the main `NSUndoManager`'s history once commi
 
 ---
 
-## 6. Open questions
+## 6. Open questions — resolved by spike
 
-- **Q1:** Tab inside overlay — commit + next cell, or insert tab into cell content? Markdown tables don't typically have tab chars in cells. Recommend: commit + next cell. Rationale: matches Numbers/Excel.
-- **Q2:** Enter inside overlay — commit + below-cell (move to next row)? Or insert newline (which becomes `<br>` in GFM)? V1: commit + next-row first cell (matches Numbers).
-- **Q3:** Empty cell click — should the overlay show with caret at position 0? Or use D12's snap-to-cell-content? Recommend: show overlay with empty content; user types directly. Cleaner.
-- **Q4:** What happens if the user clicks INSIDE the overlay area (e.g., to move caret within the same cell)? The overlay's own click handling takes over — standard NSTextView behavior. No commit.
-- **Q5:** Does the overlay need its own first-responder management, or does NSTextView's natural focus chain handle it? Probably the latter; verify in the spike.
-- **Q6:** How does the overlay interact with the harness `dump_state` action? Current dump shows the main text view's selection. With overlay active, should `dump_state` report the overlay's content + selection? V1: yes, add an `overlayActive: Bool`, `overlayContent`, `overlaySelection` to the harness payload when overlay is showing.
-- **Q7:** What happens to the D12 single-click `snapCaretToCellContent`? D13 replaces it. Remove on merge.
-- **Q8:** Does the overlay need to support markdown delimiter reveal inside (e.g., type `**` and see it become bold)? V1: no, cell content is plain text with the existing limitations of D8's cell renderer (no inline markdown rendering inside cells). This is consistent with D8/D12's deferred scope.
+All resolved by `spikes/d13_overlay/` GREEN. Decisions captured here for production reference.
+
+- **Q1 — Tab semantics:** RESOLVED. Tab commits + advances to next cell (across rows). At table boundary, dismiss overlay. Header cells EXCLUDED from Tab cycle in production (Numbers/Excel convention) — direct-click on header still mounts overlay.
+- **Q2 — Enter semantics:** RESOLVED. V1: Enter commits + dismisses. Future: configurable to "commit + advance to next-row first cell" if user feedback requests.
+- **Q3 — Empty cell click:** RESOLVED. Overlay shows with empty content + caret at offset 0. `parseCellRanges` already records empty cells as zero-length ranges at the trim-target offset.
+- **Q4 — Click inside active overlay area:** RESOLVED. NSTextView's own click handling moves caret within the overlay; no commit fires.
+- **Q5 — First-responder management:** RESOLVED. `host.window?.makeFirstResponder(overlay)` on show works; teardown returns first responder to host. No focus thrash observed.
+- **Q6 — `dump_state` overlay info:** RESOLVED in spike harness; production `HarnessCommandPoller` extends similarly with `overlay: { active, row, col, cellRangeLocation, cellRangeLength }` block.
+- **Q7 — D12's `snapCaretToCellContent`:** REMOVE on merge. Overlay path replaces it.
+- **Q8 — Inline markdown rendering inside overlay:** RESOLVED. V1 = no. Cells render raw markdown source; overlay shows the same. Inline-formatting support is a future deliverable, expected to land in the modal popout (§3.12) first.

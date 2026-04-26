@@ -104,9 +104,9 @@ All visual evidence captured via `/tmp/mdeditor-shot.png` snapshots. D8 (grid re
 
 | Gap | Disposition |
 |---|---|
+| **Wrapped-cell caret + click-to-line-2** | **Architectural limitation surfaced post-ship; resolved by D13 cell-edit overlay.** Caret on visual-line-2+ of a wrapped cell is inaccessible (caret y is determined by NSTextLineFragment which requires contiguous source ranges; multi-cell rows with one wrapped cell can't be represented). Click on visual-line-2 routes to visual-line-1 source offset. **D13 spec drafted** (`d13_cell_edit_overlay_spec.md`) — single in-place overlay text view (Numbers / Excel pattern) replaces in-cell caret/selection for active cell editing. cellRanges, CellSelectionDataSource (click-to-cell routing), double-click reveal, cell-boundary nav all stay. Single-line cells continue to work as-shipped. |
 | Inline markdown formatting inside cells (bold/italic/code/link) | Future deliverable. Cell content remains plain text from GFM source substring (D8 deferral, unchanged). |
 | **`CellRenderer` protocol** for pluggable cell renderers (per spec §4) | Future. Current code uses a single default renderer. |
-| Multi-line wrapped cell content | Works (CT layout handles it within the cell's `contentWidth`); caret navigation Up/Down within a wrapped cell relies on NSTextView's natural line-fragment behavior. |
 | Drag-select via mouse (vs. setting selection programmatically) | Should work — selection-changed flow is unchanged from D8. Manual test plan §E covers the harness-driven case. |
 | Pipe-typing UX policy | Currently allows pipe input → row gains a new column structurally. Spec listed three options (allow / auto-escape / block); allowed is current default per markdown semantics. Can be revised in a follow-up. |
 | Default NSTextView selection-highlight bleed across pipe characters | Cosmetic. Production renders per-cell highlights correctly in cells; any default highlight in inter-row source is acceptable. Suppression via override is a future polish. |

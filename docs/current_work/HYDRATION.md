@@ -1,15 +1,25 @@
-# Session Hydration — md-editor-mac (post-D12)
+# Session Hydration — md-editor-mac (Phase II — pre-D13)
 
-**Last updated:** 2026-04-25 end of D12 session
+**Last updated:** 2026-04-25 — checkpoint v0.1, post-D12, pre-D13
 **Purpose:** Get a fresh Claude Code session productive in this codebase fast. Read this in full before doing anything substantive. Combine with `~/.claude/projects/.../memory/MEMORY.md` (auto-loaded) for the full picture.
 
 ---
 
-## TL;DR — what just shipped
+## TL;DR — current state at v0.1
 
-**D12: Per-cell table editing.** GFM tables now support Word/Docs-style single-click cell editing in the production app. Spike validated the architecture across 7 tiers; production merge applied the findings to `Sources/Editor/Renderer/Tables/`. D8.1's auto-reveal-on-caret-in-table is retired; reveal is now an explicit double-click trigger.
+**D12 shipped** with one **known limitation: wrapped cells**. Single-line cells work fully (caret in cell, selection highlight, Tab nav, double-click reveal). Wrapped cells have:
+- Caret on visual-line-2+ inaccessible (it draws at row's source-line y, not on the wrapped visual line)
+- Click on visual-line-2 lands on visual-line-1 (unwrapped CT x-mapping)
+
+This was diagnosed and is architecturally bounded by NSTextView's `NSTextLineFragment` requiring **contiguous source ranges** — which doesn't fit a multi-cell row where one cell wraps. The full discussion is in `docs/current_work/specs/d13_cell_edit_overlay_spec.md`.
+
+**D13 is the response.** Single in-place cell edit overlay (Numbers/Excel pattern). Spec drafted; spike + production work is the next major arc. **This is Phase II.**
 
 **Commits on `main` (most recent first):**
+- `684b3d8` — D12 polish: per-CTLine selection highlight in wrapped cells
+- `084b002` — D12 polish: caret + selection-highlight at natural line height (single-line cells)
+- `9c7e67a` — `docs/sample_docs/` for manual testing
+- `7234523` — first HYDRATION.md
 - `ecdeee1` — D12 step 7: docs + roadmap + Harmoniq close
 - `a220cd7` — D12 step 6: CT-glyph-advance per-character x mapping
 - `1fdcf47` — D12 step 4: per-cell selection highlights
@@ -18,7 +28,32 @@
 - `e27bb0a` — D12 step 1: TableLayout.cellRanges
 - `2af00c5` — production test harness (`#if DEBUG`)
 
-D8.1's reveal **mechanism** (delegate's `revealedTables`, paragraph-style adjustments) is retained — D12 only changed the **trigger** (single-click → double-click).
+D8.1's reveal **mechanism** (delegate's `revealedTables`, paragraph-style adjustments) is retained — D12 only changed the **trigger** (single-click → double-click). D12's caret + selection-highlight no longer use the row-height paragraph-style clamp; only separator rows still have the 3pt clamp for the thin divider.
+
+---
+
+## Phase II — D13 Cell-Edit Overlay (next major arc)
+
+The architectural problem: NSTextView's `NSTextLineFragment` requires contiguous source ranges. For a multi-cell row where one cell wraps, the visual lines have non-contiguous source ranges (line 1 = cell A part + cell B + delimiters; line 2 = only cell A wrapped portion). No clean TextKit 2 way to give the caret a per-visual-line line fragment in this model.
+
+The solution: **single reusable overlay text view**, shown on click in a cell, hidden on commit. Same pattern as Numbers / Excel / Google Docs cell editing. It sidesteps TextKit 2's source-fragment model for the duration of the edit; the overlay is a regular `NSTextView` so wrapping, caret traversal, selection, copy/paste, and undo all work natively.
+
+**Click-to-caret math is solved in the spec** (§3.5): CTFramesetter on cell content at column width → iterate CTLines stacking from cell top → find line containing relY → `CTLineGetStringIndexForPosition` for the x. Set `overlay.selectedRange.location` to the local index; the overlay's own CT layout is identical to the cell's so the caret lands at the click position.
+
+**See `docs/current_work/specs/d13_cell_edit_overlay_spec.md`** for the full design, including:
+- All success criteria
+- Implementation steps (spike → production merge)
+- 8 open questions (Q1-Q8)
+- What stays from D12 (cellRanges, CellSelectionDataSource, double-click reveal, cell-boundary nav between non-active cells)
+
+**What gets superseded:** D12's in-cell caret and selection rendering (replaced by the overlay's native rendering for the active cell). `CellSelectionDataSource`'s click-to-cell-routing stays; its caret-x mapping doesn't matter once the overlay takes over the active cell's caret.
+
+**Estimate:** 1–2 days with spike-first.
+
+**Step 0 if resuming Phase II:** read this section + `d13_cell_edit_overlay_spec.md` end-to-end. Then pick up at:
+- Draft `d13_cell_edit_overlay_plan.md` and `d13_cell_edit_overlay_prompt.md` (the rest of the triad).
+- Build `spikes/d13_overlay/` to validate the click-to-caret math and overlay lifecycle.
+- Production merge.
 
 ---
 

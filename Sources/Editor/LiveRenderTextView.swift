@@ -33,9 +33,48 @@ final class LiveRenderTextView: NSTextView {
     /// "Edit Cell in Popout…" item.
     weak var cellEditModalController: CellEditModalController?
 
+    /// D15.1 scroll-jump fix: when > 0, intercept and discard internal
+    /// auto-scroll-to-caret calls. NSTextView's selection-change side
+    /// effects (from insertText, insertNewline, etc.) call
+    /// `scrollRangeToVisible(_:)` on self. During typing the user is
+    /// editing a position that is *already visible* — there is nothing
+    /// to make visible. The auto-scroll only causes layout/clip-view
+    /// shifts that the user sees as the editor "jumping". We honor the
+    /// suppression for keyDown-induced edits and for cell-edit-overlay
+    /// commits (where focus returns to the host with potentially-stale
+    /// selectedRange). Cleared on the next runloop tick so explicit
+    /// post-edit scrolls (D9 reveal-at-line) still work.
+    var scrollSuppressionDepth: Int = 0
+
+    override func scrollRangeToVisible(_ range: NSRange) {
+        if scrollSuppressionDepth > 0 { return }
+        super.scrollRangeToVisible(range)
+    }
+
     // MARK: - Mouse
 
     override func mouseDown(with event: NSEvent) {
+        // D15.1: TextKit 2 lazy-lays-out fragments only when their
+        // region becomes visible. Fragments outside the visible area
+        // can have `layoutFragmentFrame.origin = (0, 0)` (default
+        // unset) until the user scrolls to them. After a scroll, the
+        // newly-revealed region's fragments may be in transition —
+        // some have real positions, others still have y=0. A click
+        // here resolves through `tlm.textLayoutFragment(for:)`, which
+        // can return a fragment whose `.origin.y` hasn't caught up,
+        // and we then mount the cell-edit overlay at the stale y. The
+        // root fix is to force TextKit 2 to complete layout for the
+        // document range before we trust any fragment's frame for
+        // click routing or overlay placement. Repro confirmed: with
+        // tables outside the initial viewport, post-scroll click
+        // mounts overlay at the cell's pre-scroll screen position.
+        if let tlm = textLayoutManager,
+           let tcm = tlm.textContentManager {
+            tlm.ensureLayout(for: tcm.documentRange)
+        }
+        // D15.1 debug HUD — record click coords + resolved fragment
+        // info into the probe (no-op when HUD disabled in settings).
+        recordClickForDebugProbe(event: event)
         // Double-click on a table cell → request reveal of the row's
         // table to source mode (D12 retained mechanism).
         if event.clickCount == 2,
@@ -162,7 +201,32 @@ final class LiveRenderTextView: NSTextView {
             identifier: binding.commandIdentifier, in: self) {
             return
         }
+        // D15.1: suppress NSTextView's internal auto-scroll-to-caret
+        // for content-modifying keys. Navigation keys (arrows, page,
+        // home/end) keep their natural follow-the-caret scrolling.
+        let suppress = !Self.isNavigationKey(keyCode: event.keyCode)
+        if suppress {
+            scrollSuppressionDepth += 1
+        }
         super.keyDown(with: event)
+        if suppress {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.scrollSuppressionDepth = max(0, self.scrollSuppressionDepth - 1)
+            }
+        }
+    }
+
+    /// keyCodes for keys that should retain NSTextView's natural
+    /// auto-scroll-to-caret behavior. Everything else (printable chars,
+    /// return, delete, tab, escape, etc.) gets the suppression guard.
+    private static func isNavigationKey(keyCode: UInt16) -> Bool {
+        switch keyCode {
+        case 123, 124, 125, 126: return true   // arrows: left, right, down, up
+        case 116, 121:           return true   // page up, page down
+        case 115, 119:           return true   // home, end
+        default:                 return false
+        }
     }
 
     // MARK: - Delete
@@ -420,6 +484,79 @@ final class LiveRenderTextView: NSTextView {
     private static let keyTab: UInt16 = 48
     private static let keyLeft: UInt16 = 123
     private static let keyRight: UInt16 = 124
+
+    // MARK: - Debug HUD instrumentation
+
+    /// D15.1 — feed click coords and resolved-fragment info into
+    /// `DebugProbe.shared`. Cheap and side-effect-free; the HUD itself
+    /// only renders when toggled on in View menu.
+    private func recordClickForDebugProbe(event: NSEvent) {
+        let viewPoint = convert(event.locationInWindow, from: nil)
+        let containerY = viewPoint.y - textContainerInset.height
+        let containerPoint = NSPoint(
+            x: viewPoint.x - textContainerInset.width,
+            y: containerY)
+        var fragOriginY: CGFloat = 0
+        var fragKind: String = "—"
+        var tableRow: Int = -1
+        var tableCol: Int = -1
+        var fragmentClass: String = "—"
+        if let tlm = textLayoutManager,
+           let frag = tlm.textLayoutFragment(for: containerPoint) {
+            fragOriginY = frag.layoutFragmentFrame.origin.y
+            fragmentClass = String(describing: type(of: frag))
+            if let row = frag as? TableRowFragment {
+                fragKind = String(describing: row.attachment.kind)
+                tableRow = row.attachment.cellContentIndex ?? -1
+                let layout = row.attachment.layout
+                let xInFrag = containerPoint.x
+                    - frag.layoutFragmentFrame.origin.x
+                for c in 0..<layout.contentWidths.count {
+                    let leftEdge = layout.columnLeadingX[c] - layout.cellInset.left
+                    let rightEdge = layout.columnTrailingX[c] + layout.cellInset.right
+                    if xInFrag >= leftEdge && xInFrag < rightEdge {
+                        tableCol = c
+                        break
+                    }
+                }
+            } else {
+                fragKind = "para"
+            }
+        }
+        let line = lineNumberForOffset(containerPoint: containerPoint)
+        DebugProbe.shared.recordClick(
+            viewPoint: viewPoint,
+            containerY: containerY,
+            line: line,
+            fragKind: fragKind,
+            fragOriginY: fragOriginY,
+            tableRow: tableRow,
+            tableCol: tableCol,
+            fragmentClass: fragmentClass)
+    }
+
+    /// 1-based line number at the click point, derived by counting
+    /// newlines from doc start to the resolved character offset. Slow
+    /// path on long docs but cheap enough on a single click.
+    private func lineNumberForOffset(containerPoint: NSPoint) -> Int {
+        guard let tlm = textLayoutManager,
+              let frag = tlm.textLayoutFragment(for: containerPoint),
+              let tcm = tlm.textContentManager else {
+            return 0
+        }
+        let elementRange = frag.rangeInElement
+        let docStart = tcm.documentRange.location
+        let offset = tlm.offset(from: docStart, to: elementRange.location)
+        let source = self.string as NSString
+        var line = 1
+        var i = 0
+        let limit = min(offset, source.length)
+        while i < limit {
+            if source.character(at: i) == 0x0A { line += 1 }
+            i += 1
+        }
+        return line
+    }
 
     // MARK: - Right-click menu (D13 §3.12 modal popout)
 

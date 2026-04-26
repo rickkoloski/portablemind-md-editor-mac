@@ -77,6 +77,11 @@ struct MdEditorApp: App {
                         ToolbarButton(action: .bulletList)
                         ToolbarButton(action: .numberedList)
                     }
+                    if settings.debugHUDVisible {
+                        ToolbarItemGroup(placement: .primaryAction) {
+                            DebugProbeHUD()
+                        }
+                    }
                 }
         }
         .windowResizability(.contentSize)
@@ -94,6 +99,11 @@ struct MdEditorApp: App {
                 }
                 .keyboardShortcut("l", modifiers: [.command, .option])
                 .accessibilityIdentifier(AccessibilityIdentifiers.viewMenuToggleLineNumbers)
+
+                Button(settings.debugHUDVisible ? "Hide Debug HUD" : "Show Debug HUD") {
+                    settings.debugHUDVisible.toggle()
+                }
+                .keyboardShortcut("d", modifiers: [.command, .option])
             }
             CommandGroup(after: .newItem) {
                 Button("Open Folder…") { openFolder() }

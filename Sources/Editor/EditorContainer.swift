@@ -134,6 +134,21 @@ struct EditorContainer: NSViewRepresentable {
         scroll.documentView = textView
         syncLineNumberRuler(in: scroll, textView: textView,
                             coordinator: context.coordinator)
+
+        // D15.1 — feed scroll position into the debug HUD probe.
+        // Observe `boundsDidChange` on the contentView (clip view); set
+        // contentView.postsBoundsChangedNotifications first.
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scroll.contentView,
+            queue: .main
+        ) { [weak scroll] _ in
+            guard let scroll else { return }
+            DebugProbe.shared.recordScroll(scroll.contentView.bounds.origin.y)
+        }
+        DebugProbe.shared.recordScroll(scroll.contentView.bounds.origin.y)
+
         return scroll
     }
 
@@ -526,6 +541,21 @@ struct EditorContainer: NSViewRepresentable {
                 }
             }
             textStorage.endEditing()
+
+            // D15.1: force TextKit 2 to lay out the ENTIRE document
+            // now, not lazily as scroll reveals new regions. Without
+            // this, fragments outside the initial viewport keep
+            // `layoutFragmentFrame.origin = (0,0)` until the viewport
+            // reaches them — and during the transition the user sees
+            // blank space where the table should be (CD repro:
+            // scroll one detent past the visible region → only the
+            // active cell-edit overlay renders, surrounding rows are
+            // missing for one frame). Up-front full layout is O(N)
+            // on the doc but amortizes across the whole session.
+            if let tlm = textView.textLayoutManager,
+               let tcm = tlm.textContentManager {
+                tlm.ensureLayout(for: tcm.documentRange)
+            }
 
             cursorTracker.invalidate()
             cursorTracker.collapseAllDelimiters(in: textView)

@@ -136,10 +136,59 @@ final class HarnessCommandPoller {
                 scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             }
+        case "set_scroll_via_wheel":
+            // D15.1 — programmatic scroll(to:) does NOT post the
+            // willStartLiveScroll / didLiveScroll / didEndLiveScroll
+            // notification chain that NSScrollView emits during real
+            // wheel scrolls. Some downstream code (and TextKit 2's own
+            // lazy-layout invalidation) reacts to those signals. This
+            // action mirrors the full notification sequence so harness
+            // tests can repro post-wheel-scroll bugs.
+            if let tv = HarnessActiveSink.shared.activeTextView,
+               let scrollView = tv.enclosingScrollView {
+                let y = (params["y"] as? Double).map { CGFloat($0) }
+                    ?? CGFloat((params["y"] as? Int) ?? 0)
+                NotificationCenter.default.post(
+                    name: NSScrollView.willStartLiveScrollNotification,
+                    object: scrollView)
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+                NotificationCenter.default.post(
+                    name: NSScrollView.didLiveScrollNotification,
+                    object: scrollView)
+                NotificationCenter.default.post(
+                    name: NSScrollView.didEndLiveScrollNotification,
+                    object: scrollView)
+            }
         case "insert_text":
             if let text = params["text"] as? String,
                let tv = HarnessActiveSink.shared.activeTextView {
                 tv.insertText(text, replacementRange: tv.selectedRange())
+            }
+        case "synthesize_keypress":
+            // D15.1 reproduction path: real keyDown event so scroll-jump
+            // bug surfaces. `insertText` bypasses the keyDown path that
+            // NSTextView's internal auto-scroll-to-caret hooks into;
+            // synthesizing an NSEvent and dispatching via keyDown(with:)
+            // exercises the same machinery as a physical keystroke.
+            if let tv = HarnessActiveSink.shared.activeTextView {
+                tv.window?.makeFirstResponder(tv)
+                let chars = (params["chars"] as? String) ?? " "
+                let keyCode = UInt16((params["keyCode"] as? Int) ?? 49) // space
+                let evt = NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: tv.window?.windowNumber ?? 0,
+                    context: nil,
+                    characters: chars,
+                    charactersIgnoringModifiers: chars,
+                    isARepeat: false,
+                    keyCode: keyCode)
+                if let evt {
+                    tv.keyDown(with: evt)
+                }
             }
         case "save_focused_doc":
             saveFocusedDoc(to: params["path"] as? String
@@ -193,6 +242,18 @@ final class HarnessCommandPoller {
         case "advance_overlay_tab":
             let backward = (params["backward"] as? Bool) ?? false
             advanceOverlayTab(backward: backward)
+        case "inspect_overlay":
+            inspectOverlay(to: params["path"] as? String
+                ?? "/tmp/mdeditor-overlay.json")
+        case "inspect_table_layout":
+            // D15.1 regression instrument — dump each table row's
+            // current `frag.layoutFragmentFrame` and the row's expected
+            // height (per `TableLayout.rowHeight`). Used to detect
+            // post-scroll layout staleness: if the same lookup returns
+            // different frames before and after a scroll, the table
+            // fragment cache is the culprit.
+            inspectTableLayout(to: params["path"] as? String
+                ?? "/tmp/mdeditor-table-layout.json")
         case "simulate_click_at_table_cell":
             // D13 Phase 3 — simulate a real mouseDown on the cell at
             // (table, row, col) at cell-content-local (relX, relY).
@@ -323,6 +384,146 @@ final class HarnessCommandPoller {
         guard let data = rep.representation(using: .png, properties: [:]) else { return }
         try? data.write(to: URL(fileURLWithPath: path))
         NSLog("[TEST-HARNESS] snapshot → \(path) (\(data.count) bytes)")
+    }
+
+    /// D15.1 — capture the active overlay's actual frame in
+    /// text-view coordinates, plus the cell's "expected" frame as
+    /// computed from the table layout for the row/col the controller
+    /// claims the overlay is mounted on. If the two diverge, the
+    /// overlay was placed at a stale geometry.
+    private func inspectOverlay(to path: String) {
+        var payload: [String: Any] = ["active": false]
+        if let tv = HarnessActiveSink.shared.activeTextView,
+           let ov = tv.subviews.compactMap({ $0 as? CellEditOverlay }).first,
+           let controller = cellEditController,
+           controller.isActive,
+           let attachment = controller.activeAttachment {
+            let layout = attachment.layout
+            let row = controller.activeRow
+            let col = controller.activeCol
+            let inset = tv.textContainerInset
+            // Re-resolve the expected cell frame the same way showOverlay
+            // does, but using the CURRENT fragment (post-scroll) — if
+            // the fragment moved underneath us, this will reflect it.
+            var expected: CGRect = .zero
+            if let storage = tv.textStorage,
+               let tlm = tv.textLayoutManager,
+               let docStart = tlm.textContentManager?.documentRange.location {
+                var rowSourceLoc: Int? = nil
+                storage.enumerateAttribute(
+                    TableAttributeKeys.rowAttachmentKey,
+                    in: NSRange(location: 0, length: storage.length),
+                    options: []
+                ) { value, range, stop in
+                    guard let att = value as? TableRowAttachment,
+                          ObjectIdentifier(att) == ObjectIdentifier(attachment) else { return }
+                    rowSourceLoc = range.location
+                    stop.pointee = true
+                }
+                if let loc = rowSourceLoc,
+                   let rowStart = tlm.location(docStart, offsetBy: loc),
+                   let frag = tlm.textLayoutFragment(for: rowStart) {
+                    let fragFrame = frag.layoutFragmentFrame
+                    let cellLeft = fragFrame.origin.x + layout.columnLeadingX[col]
+                        - layout.cellInset.left + inset.width
+                    let cellTop = fragFrame.origin.y + inset.height
+                    let cellWidth = layout.contentWidths[col]
+                        + layout.cellInset.left + layout.cellInset.right
+                    let cellHeight = fragFrame.size.height
+                    expected = CGRect(x: cellLeft, y: cellTop,
+                                      width: cellWidth, height: cellHeight)
+                }
+            }
+            payload = [
+                "active": true,
+                "row": row,
+                "col": col,
+                "actualFrame": [
+                    "x": ov.frame.origin.x, "y": ov.frame.origin.y,
+                    "w": ov.frame.size.width, "h": ov.frame.size.height
+                ],
+                "expectedFrame": [
+                    "x": expected.origin.x, "y": expected.origin.y,
+                    "w": expected.size.width, "h": expected.size.height
+                ],
+                "scrollY": tv.enclosingScrollView?.contentView.bounds.origin.y ?? -1
+            ]
+        }
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    /// D15.1 — for every table row in the document, capture both the
+    /// fragment's reported `layoutFragmentFrame` and what TextKit 2's
+    /// hit-test (`tlm.textLayoutFragment(for:)`) returns for the same
+    /// row's start location. After a scroll, these can diverge: the
+    /// cached frame on a fragment instance can be stale, or the hit
+    /// test can return a different fragment instance from the one we
+    /// initially asked for. Comparing across before/after-scroll calls
+    /// is the way to surface either condition without staring at
+    /// screenshots.
+    private func inspectTableLayout(to path: String) {
+        guard let tv = HarnessActiveSink.shared.activeTextView,
+              let storage = tv.textStorage,
+              let tlm = tv.textLayoutManager,
+              let docStart = tlm.textContentManager?.documentRange.location else {
+            try? "{}".write(toFile: path, atomically: true, encoding: .utf8)
+            return
+        }
+        var layouts: [(ObjectIdentifier, TableLayout, [(NSRange, TableRowAttachment)])] = []
+        storage.enumerateAttribute(
+            TableAttributeKeys.rowAttachmentKey,
+            in: NSRange(location: 0, length: storage.length),
+            options: []
+        ) { value, range, _ in
+            guard let att = value as? TableRowAttachment else { return }
+            let id = ObjectIdentifier(att.layout)
+            if let idx = layouts.firstIndex(where: { $0.0 == id }) {
+                layouts[idx].2.append((range, att))
+            } else {
+                layouts.append((id, att.layout, [(range, att)]))
+            }
+        }
+        var tablesPayload: [[String: Any]] = []
+        for (_, layout, rows) in layouts {
+            var rowsPayload: [[String: Any]] = []
+            for (sourceRange, att) in rows {
+                guard let rowStart = tlm.location(docStart, offsetBy: sourceRange.location)
+                else { continue }
+                // Fragment via hit-test by location.
+                let frag = tlm.textLayoutFragment(for: rowStart)
+                let frame = frag?.layoutFragmentFrame ?? .zero
+                let expectedHeight: CGFloat = {
+                    if att.kind == .separator { return 3 }
+                    let idx = att.cellContentIndex ?? 0
+                    return idx < layout.rowHeight.count ? layout.rowHeight[idx] : 0
+                }()
+                rowsPayload.append([
+                    "kind": String(describing: att.kind),
+                    "cci": att.cellContentIndex ?? -1,
+                    "sourceRange": ["location": sourceRange.location,
+                                    "length": sourceRange.length],
+                    "fragOriginX": frame.origin.x,
+                    "fragOriginY": frame.origin.y,
+                    "fragWidth": frame.size.width,
+                    "fragHeight": frame.size.height,
+                    "expectedHeight": expectedHeight,
+                    "fragmentClass": String(describing: type(of: frag ?? NSObject() as Any))
+                ])
+            }
+            tablesPayload.append([
+                "tableRangeLocation": layout.tableRange.location,
+                "tableRangeLength": layout.tableRange.length,
+                "rows": rowsPayload
+            ])
+        }
+        if let data = try? JSONSerialization.data(
+            withJSONObject: ["tables": tablesPayload],
+            options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
     }
 
     /// D13 Phase 2 — programmatically mount the overlay on the

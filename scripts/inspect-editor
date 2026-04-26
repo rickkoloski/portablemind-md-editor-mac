@@ -1,0 +1,75 @@
+#!/bin/zsh
+# Inspect-editor — capture the editor's current state for the D15.1
+# table-after-scroll diagnostic. Run this AT THE MOMENT you can see the
+# bug visually so we capture the runtime state that produced it.
+#
+# Outputs go to /tmp/mdeditor-inspect-*.json
+# Print a human-readable summary at the end.
+
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+set -e
+
+CMD=/tmp/mdeditor-command.json
+
+write_cmd() {
+  /bin/rm -f "$CMD"
+  printf '%s' "$1" > "$CMD.tmp"
+  /bin/mv "$CMD.tmp" "$CMD"
+  while [ -f "$CMD" ]; do /bin/sleep 0.05; done
+}
+
+action_to_file() {
+  local action="$1"
+  local outpath="$2"
+  /bin/rm -f "$outpath"
+  write_cmd "{\"action\":\"$action\",\"path\":\"$outpath\"}"
+  while [ ! -f "$outpath" ]; do /bin/sleep 0.05; done
+}
+
+action_to_file scroll_info             /tmp/mdeditor-inspect-scroll.json
+action_to_file dump_state              /tmp/mdeditor-inspect-state.json
+action_to_file inspect_table_layout    /tmp/mdeditor-inspect-tables.json
+action_to_file inspect_overlay         /tmp/mdeditor-inspect-overlay.json
+action_to_file snapshot                /tmp/mdeditor-inspect-shot.png
+
+/usr/bin/python3 <<'PY'
+import json, os
+scroll  = json.load(open('/tmp/mdeditor-inspect-scroll.json'))
+state   = json.load(open('/tmp/mdeditor-inspect-state.json'))
+tables  = json.load(open('/tmp/mdeditor-inspect-tables.json'))
+overlay = json.load(open('/tmp/mdeditor-inspect-overlay.json'))
+
+print('=== Scroll ===')
+print(f"  scrollY = {scroll.get('scrollY')}")
+print(f"  visibleH = {scroll.get('visibleHeight','?')}")
+
+print('=== Selection / source ===')
+print(f"  sourceLength = {state.get('sourceLength')}")
+print(f"  selection = {state.get('selection')}")
+
+print('=== Overlay ===')
+if overlay.get('active'):
+    a = overlay['actualFrame']; e = overlay['expectedFrame']
+    print(f"  active row={overlay['row']} col={overlay['col']}  scrollY={overlay.get('scrollY')}")
+    print(f"  actual:   x={a['x']:.1f} y={a['y']:.1f} w={a['w']:.1f} h={a['h']:.1f}")
+    print(f"  expected: x={e['x']:.1f} y={e['y']:.1f} w={e['w']:.1f} h={e['h']:.1f}")
+    if (a['x'],a['y'],a['w'],a['h']) != (e['x'],e['y'],e['w'],e['h']):
+        print(f"  ⚠️  DIVERGENT — Δx={a['x']-e['x']:.1f} Δy={a['y']-e['y']:.1f}")
+    else:
+        print(f"  ✓ matches")
+else:
+    print('  none')
+
+print('=== Tables (fragment frames) ===')
+for ti, t in enumerate(tables.get('tables', [])):
+    print(f"  Table {ti}: source[{t['tableRangeLocation']}, +{t['tableRangeLength']}]  {len(t.get('rows',[]))} rows")
+    for ri, r in enumerate(t.get('rows', [])):
+        marker = '   '
+        if abs(r['fragHeight'] - r['expectedHeight']) > 0.5:
+            marker = ' ⚠ '
+        print(f"  {marker}  Row {ri:2d} kind={r['kind']:9s} cci={r['cci']:2d}  src[{r['sourceRange']['location']:5d}, +{r['sourceRange']['length']:4d}]  fragY={r['fragOriginY']:7.1f}  fragH={r['fragHeight']:6.1f}  expH={r['expectedHeight']:6.1f}")
+
+print()
+print('Snapshot PNG:    /tmp/mdeditor-inspect-shot.png')
+print('Raw JSON files:  /tmp/mdeditor-inspect-*.json')
+PY

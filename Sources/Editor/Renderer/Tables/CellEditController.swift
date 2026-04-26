@@ -173,6 +173,21 @@ final class CellEditController: NSObject, CellEditOverlayDelegate {
             : activeTableFirstRowLoc + delta
         lastCommitAnchor = TableAnchor(tableFirstRowLoc: updatedFirstRowLoc)
 
+        // D15.1 path B: suppress NSTextView's auto-scroll during the
+        // storage edit + render + teardown. Even with the host's
+        // selection anchored to the cell in showOverlay, the storage
+        // mutation can trigger a selection-change auto-scroll. We
+        // clear on the next runloop so any deferred scroll inside
+        // makeFirstResponder is also blocked.
+        let lrtv = host as? LiveRenderTextView
+        lrtv?.scrollSuppressionDepth += 1
+        defer {
+            DispatchQueue.main.async { [weak lrtv] in
+                guard let lrtv else { return }
+                lrtv.scrollSuppressionDepth = max(0, lrtv.scrollSuppressionDepth - 1)
+            }
+        }
+
         if let storage = host.textStorage {
             storage.replaceCharacters(in: activeCellRange, with: escaped)
             // Trigger production's re-render. Same path used by

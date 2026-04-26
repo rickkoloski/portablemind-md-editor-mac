@@ -29,5 +29,12 @@ final class AppSettings: ObservableObject {
     /// editor gutter). Turn on via View → Show Line Numbers.
     @AppStorage("lineNumbersVisible") var lineNumbersVisible: Bool = false
 
+    /// D15.1 — in-window debug HUD that shows scrollY, last click
+    /// coordinates, and resolved fragment info in the trailing toolbar
+    /// slot. Off by default; toggle via View → Show Debug HUD. Used
+    /// for diagnosing fragment-layout / click-routing issues that
+    /// require seeing live state during real interaction.
+    @AppStorage("debugHUDVisible") var debugHUDVisible: Bool = false
+
     private init() {}
 }

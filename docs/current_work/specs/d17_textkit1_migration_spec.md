@@ -123,14 +123,31 @@ Source code that goes:
 
 ---
 
-## 5. Open questions for CD before implementation
+## 5. Open questions for CD before implementation — RESOLVED 2026-04-26
+
+CD agreed with the recommendations on all four. Each becomes the decision; the implementer's behavior should match.
 
 1. **D8.1 reveal mode** — keep, drop, or rebuild? My recommendation: drop. With in-place editing the original motivation is largely gone; re-implementing it is real work (toggle textBlocks to nil and back is conceptually easy but has selection-handling and undo-handling implications). The mechanism survives in `git log` if a future user asks for it.
+
+rak: agreed
+
 2. **D13 modal popout** — keep as a long-form-edit escape hatch, or drop? My recommendation: drop. Adds a code path that's now unused; brings back if dogfooding asks for it.
+
+rak: agreed
+
 3. **Active-cell border** — defer to a follow-up post-migration deliverable, OR include in D17 scope? My recommendation: defer. Visual polish; not migration-blocking.
+
+rak: agreed
+
 4. **Cell-aware Tab nav** — include in D17 scope, or follow-up? My recommendation: include — it's a small port and cell editing without Tab nav feels broken to anyone who's used Numbers/Excel.
 
-CD: please mark each {keep, drop, defer} before implementation begins. Otherwise the implementer infers from my recommendations above.
+rak: agreed
+
+Net behaviors for the implementer:
+- D8.1 source-reveal mode: **DROP**.
+- D13 modal popout: **DROP**.
+- Active-cell border: **DEFER** to D18+.
+- Cell-aware Tab nav: **INCLUDE** in D17 (phase 6 of the plan).
 
 ---
 

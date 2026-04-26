@@ -158,10 +158,23 @@ final class HarnessCommandPoller {
                 tv.window?.makeFirstResponder(tv)
                 let chars = (params["chars"] as? String) ?? " "
                 let keyCode = UInt16((params["keyCode"] as? Int) ?? 49) // space
+                var modifierFlags: NSEvent.ModifierFlags = []
+                if (params["shift"] as? Bool) == true {
+                    modifierFlags.insert(.shift)
+                }
+                if (params["option"] as? Bool) == true {
+                    modifierFlags.insert(.option)
+                }
+                if (params["command"] as? Bool) == true {
+                    modifierFlags.insert(.command)
+                }
+                if (params["control"] as? Bool) == true {
+                    modifierFlags.insert(.control)
+                }
                 let evt = NSEvent.keyEvent(
                     with: .keyDown,
                     location: .zero,
-                    modifierFlags: [],
+                    modifierFlags: modifierFlags,
                     timestamp: ProcessInfo.processInfo.systemUptime,
                     windowNumber: tv.window?.windowNumber ?? 0,
                     context: nil,

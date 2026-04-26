@@ -50,12 +50,109 @@ final class LiveRenderTextView: NSTextView {
     // MARK: - Keys
 
     override func keyDown(with event: NSEvent) {
+        // D17 phase 6 — cell-aware Tab nav. Intercept Tab/Shift+Tab
+        // when the caret is in a TK1 NSTextTable cell paragraph;
+        // advance to the next cell. Outside cells, Tab inserts a
+        // literal tab character (stock NSTextView behavior).
+        if event.keyCode == Self.keyTab {
+            let backward = event.modifierFlags.contains(.shift)
+            if advanceCellOnTab(backward: backward) {
+                return
+            }
+        }
         if let binding = KeyboardBindings.match(event: event),
            CommandDispatcher.shared.dispatch(
             identifier: binding.commandIdentifier, in: self) {
             return
         }
         super.keyDown(with: event)
+    }
+
+    private static let keyTab: UInt16 = 48
+
+    /// Move the caret to the start of the next (or prior) cell
+    /// paragraph that shares the current cell's NSTextTable. Returns
+    /// true if a move happened (caller swallows the event); false if
+    /// the caret wasn't in a cell or there's no further cell to move
+    /// to (caller falls through to default Tab behavior).
+    private func advanceCellOnTab(backward: Bool) -> Bool {
+        guard let storage = textStorage else { return false }
+        let sel = selectedRange()
+        guard sel.length == 0 else { return false }
+        // What table is the caret in?
+        guard let (currentTable, _, _) =
+                cellTableInfo(at: sel.location, in: storage) else {
+            return false
+        }
+        // Walk paragraphs forward (or backward) looking for the next
+        // cell of the same NSTextTable.
+        let nsString = storage.string as NSString
+        let n = nsString.length
+        let step = backward ? -1 : +1
+        var probe = sel.location
+        var lastTargetStart: Int = -1
+        // Move to start of NEXT paragraph in `step` direction.
+        while probe >= 0, probe <= n {
+            // Find the start of the paragraph at `probe`'s direction.
+            let nextParaStart: Int = {
+                if backward {
+                    // Find prior \n; the paragraph starts after it.
+                    var i = probe - 1
+                    // Step over the immediate preceding \n if present
+                    // so we land in the paragraph BEFORE the current.
+                    while i >= 0 && nsString.character(at: i) != 0x0A { i -= 1 }
+                    // i points at a \n (or -1). Now step over it and
+                    // walk back to the start of the prior paragraph.
+                    if i < 0 { return -1 }
+                    var j = i - 1
+                    while j >= 0 && nsString.character(at: j) != 0x0A { j -= 1 }
+                    return j + 1
+                } else {
+                    // Find next \n; the paragraph after it starts at \n+1.
+                    var i = probe
+                    while i < n && nsString.character(at: i) != 0x0A { i += 1 }
+                    if i >= n { return -1 }
+                    return i + 1
+                }
+            }()
+            if nextParaStart < 0 || nextParaStart >= n { break }
+            // Cell info at the next paragraph's start.
+            if let (nextTable, _, _) =
+                cellTableInfo(at: nextParaStart, in: storage),
+               nextTable === currentTable {
+                lastTargetStart = nextParaStart
+                break
+            }
+            probe = nextParaStart + (backward ? -1 : +1)
+            _ = step
+        }
+        guard lastTargetStart >= 0 else { return false }
+        setSelectedRange(NSRange(location: lastTargetStart, length: 0))
+        return true
+    }
+
+    /// If the paragraph at `location` is a cell paragraph (its
+    /// paragraphStyle has at least one NSTextTableBlock), return the
+    /// shared `NSTextTable` plus the cell's row / column. Otherwise
+    /// nil.
+    private func cellTableInfo(at location: Int,
+                               in storage: NSTextStorage)
+        -> (NSTextTable, Int, Int)?
+    {
+        let n = storage.length
+        guard n > 0 else { return nil }
+        let probe = max(0, min(location, n - 1))
+        let attrs = storage.attributes(at: probe, effectiveRange: nil)
+        guard let pStyle = attrs[.paragraphStyle] as? NSParagraphStyle
+        else { return nil }
+        for block in pStyle.textBlocks {
+            if let tableBlock = block as? NSTextTableBlock {
+                return (tableBlock.table,
+                        tableBlock.startingRow,
+                        tableBlock.startingColumn)
+            }
+        }
+        return nil
     }
 
     // MARK: - Debug HUD instrumentation

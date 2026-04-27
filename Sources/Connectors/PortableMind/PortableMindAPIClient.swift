@@ -90,6 +90,85 @@ final class PortableMindAPIClient {
         return try await fetchSignedBlob(url: url)
     }
 
+    /// `PATCH /api/v1/llm_files/:id` — replace the file's content with
+    /// `bytes`. multipart/form-data; the file part is named
+    /// `llm_file[file]`. Returns the refreshed FileDTO with a fresh
+    /// signed URL (20-minute expiry per Harmoniq). The server's
+    /// `updated_at` in the response is the new server-side mtime; the
+    /// caller should record it as the next `lastSeenUpdatedAt` for
+    /// conflict detection.
+    func updateFile(fileID: Int,
+                    bytes: Data,
+                    contentType: String = "text/markdown",
+                    filename: String = "content.md")
+        async throws -> FileDTO
+    {
+        var builder = MultipartFormDataBuilder()
+        builder.appendFile(
+            name: "llm_file[file]",
+            filename: filename,
+            contentType: contentType,
+            data: bytes)
+        builder.finalize()
+
+        let url = base("/llm_files/\(fileID)")
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json",
+                         forHTTPHeaderField: "Accept")
+        request.setValue(builder.contentType,
+                         forHTTPHeaderField: "Content-Type")
+        guard let token = try tokens.load(), !token.isEmpty else {
+            throw ConnectorError.unauthenticated
+        }
+        request.setValue("Bearer \(token)",
+                         forHTTPHeaderField: "Authorization")
+        if let identifier = JWTPayload.tenantEnterpriseIdentifier(from: token) {
+            request.setValue(identifier, forHTTPHeaderField: "X-Tenant-ID")
+        }
+        request.httpBody = builder.body
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw ConnectorError.network(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw ConnectorError.network(URLError(.badServerResponse))
+        }
+        switch http.statusCode {
+        case 200...299:
+            do {
+                let resp = try JSONDecoder().decode(
+                    LlmFileShowResponse.self, from: data)
+                guard let file = resp.llm_file else {
+                    throw ConnectorError.server(
+                        status: http.statusCode,
+                        message: "PATCH llm_files/\(fileID): missing payload")
+                }
+                return file
+            } catch {
+                throw ConnectorError.server(
+                    status: http.statusCode,
+                    message: "decode failed: \(error)")
+            }
+        case 401, 403:
+            let body = String(data: data, encoding: .utf8)
+            throw ConnectorError.writeForbidden(
+                body ?? "HTTP \(http.statusCode)")
+        case 402:
+            // Storage quota — Harmoniq returns
+            // {error_code: "DOCUMENT_STORAGE_LIMIT_EXCEEDED", message: …}
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw ConnectorError.storageQuotaExceeded(body)
+        default:
+            let body = String(data: data, encoding: .utf8)
+            throw ConnectorError.server(
+                status: http.statusCode, message: body)
+        }
+    }
+
     // MARK: - Internals
 
     private func base(_ path: String) -> URL {

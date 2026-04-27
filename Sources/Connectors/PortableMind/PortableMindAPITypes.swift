@@ -57,6 +57,9 @@ struct FileDTO: Decodable {
     let tenant_id: Int
     let tenant_enterprise_identifier: String?
     let tenant_name: String?
+    /// Server-side modification time (ISO8601). Used by D19 phase 3+
+    /// for `lastSeenUpdatedAt` plumbing and phase 4's conflict prompt.
+    let updated_at: String?
 }
 
 struct CurrentUserDTO: Decodable {

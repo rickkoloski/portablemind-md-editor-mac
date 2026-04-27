@@ -27,6 +27,7 @@
 		38EB69A8B24FF9E4421EB31D /* PortableMindAPITypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFAE7E5D6F6118A49F7BDE9F /* PortableMindAPITypes.swift */; };
 		3CE55B77E9B4356FF7DFAD93 /* HarnessCommandPoller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF3F965AD0AEC856FA38062 /* HarnessCommandPoller.swift */; };
 		3F6B21F07D4279396B7F1D66 /* MutationKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B038FAE2D09EC30C229AB152 /* MutationKeyboardTests.swift */; };
+		40F34C5C1E3FE8A4DEB59785 /* MultipartFormDataBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB70F88490FD37B4B59C77E /* MultipartFormDataBuilder.swift */; };
 		4BB6F23633E3B1073C4D98C5 /* MutationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E5D9317F80A9FFE42F4FCC /* MutationResolver.swift */; };
 		4BE45061582C8A8E09F25BC0 /* EmptyEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03D8CF6CE596C7EA09CBC7D /* EmptyEditorView.swift */; };
 		50140E0B73804ECBE7BF58A3 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D1504C30B534BEB9009CA61 /* AppSettings.swift */; };
@@ -110,6 +111,7 @@
 		3CBAA081C0FC098EFA83A8EC /* URLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSchemeHandler.swift; sourceTree = "<group>"; };
 		3F61A04D941BAF0ECBD6E57F /* LineNumberRulerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberRulerView.swift; sourceTree = "<group>"; };
 		408E9C472E809997158FDC0B /* SetViewCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetViewCommand.swift; sourceTree = "<group>"; };
+		4CB70F88490FD37B4B59C77E /* MultipartFormDataBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultipartFormDataBuilder.swift; sourceTree = "<group>"; };
 		4D7CFB400CAB34EABC74D518 /* BulletListMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BulletListMutation.swift; sourceTree = "<group>"; };
 		553EA0392CDEB0455C90FC2F /* WorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStore.swift; sourceTree = "<group>"; };
 		5C1ABD3965302A0DADDB34BE /* ToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolbarButton.swift; sourceTree = "<group>"; };
@@ -317,6 +319,7 @@
 			isa = PBXGroup;
 			children = (
 				A7E35D34EFC03E848507FF3C /* JWTPayload.swift */,
+				4CB70F88490FD37B4B59C77E /* MultipartFormDataBuilder.swift */,
 				F873FF8CD782C99039894CEE /* PortableMindAPIClient.swift */,
 				BFAE7E5D6F6118A49F7BDE9F /* PortableMindAPITypes.swift */,
 				711283719E1D5964FCE23CC5 /* PortableMindConnector.swift */,
@@ -599,6 +602,7 @@
 				ABB890A28AF3D932A0C43A9C /* MarkdownDocumentType.swift in Sources */,
 				12E540CFFA8AA7B66C5806BA /* MarkdownRenderer.swift in Sources */,
 				74D110B4A42E5E7D66D7CD71 /* MdEditorApp.swift in Sources */,
+				40F34C5C1E3FE8A4DEB59785 /* MultipartFormDataBuilder.swift in Sources */,
 				EE45FB6087116ECA1BB182BE /* MutationHelpers.swift in Sources */,
 				114A182098B0BA1BF3283B3A /* MutationPrimitive.swift in Sources */,
 				4BB6F23633E3B1073C4D98C5 /* MutationResolver.swift in Sources */,

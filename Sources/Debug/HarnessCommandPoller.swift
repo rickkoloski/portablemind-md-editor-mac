@@ -215,6 +215,25 @@ final class HarnessCommandPoller {
             // than for command-file disappearance.
             pmApiSmoke(to: params["path"] as? String
                 ?? "/tmp/mdeditor-pm-api.json")
+        case "pm_save_smoke":
+            // D19 phase 2 — ASYNC; writes `text` as the new content
+            // of the LlmFile with id `fileID`. Result envelope at
+            // `path` includes ok / byteCount / freshUrl / updatedAt
+            // so the driver can verify the write end-to-end. Optional
+            // `filename` is passed to the multipart body so the
+            // ActiveStorage blob keeps a sensible filename (defaults
+            // to the LlmFile's existing title via a fetch round-trip
+            // when omitted).
+            let fileID: Int = {
+                if let i = params["fileID"] as? Int { return i }
+                if let s = params["fileID"] as? String, let i = Int(s) { return i }
+                return -1
+            }()
+            pmSaveSmoke(fileID: fileID,
+                        text: (params["text"] as? String) ?? "",
+                        filename: params["filename"] as? String,
+                        to: params["path"] as? String
+                            ?? "/tmp/mdeditor-pm-save.json")
         // D18 phase 3 — sidebar / connector tree inspection.
         case "dump_sidebar_state":
             dumpSidebarState(to: params["path"] as? String
@@ -823,6 +842,77 @@ final class HarnessCommandPoller {
                 withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
                 try? data.write(to: URL(fileURLWithPath: path))
                 NSLog("[TEST-HARNESS] pm_api_smoke → \(path) (\(data.count) bytes)")
+            }
+        }
+    }
+
+    /// `pm_save_smoke` (D19 phase 2) — writes `text` as new content
+    /// of `fileID` via `PortableMindAPIClient.updateFile`. Async; the
+    /// driver waits for the result file to be non-empty.
+    ///
+    /// `filename` is optional; if nil, the smoke fetches the file's
+    /// title via `fetchFileMeta` first and uses that as the multipart
+    /// filename. Keeps ActiveStorage blob's filename aligned with the
+    /// LlmFile's title rather than leaking the client-side default.
+    private func pmSaveSmoke(fileID: Int,
+                             text: String,
+                             filename: String?,
+                             to path: String) {
+        try? Data().write(to: URL(fileURLWithPath: path))
+        Task.detached {
+            let client = PortableMindAPIClient()
+            let payload: [String: Any]
+            do {
+                guard fileID > 0 else {
+                    Self.writeJSONErrorStatic(
+                        ["ok": false, "error": "missing or invalid fileID"],
+                        to: path)
+                    return
+                }
+                let resolvedFilename: String
+                if let f = filename, !f.isEmpty {
+                    resolvedFilename = f
+                } else if let meta = try? await client.fetchFileMeta(
+                    fileID: fileID) {
+                    resolvedFilename = meta.title
+                } else {
+                    resolvedFilename = "content.md"
+                }
+                let bytes = Data(text.utf8)
+                let updated = try await client.updateFile(
+                    fileID: fileID,
+                    bytes: bytes,
+                    filename: resolvedFilename)
+                payload = [
+                    "ok": true,
+                    "fileID": updated.id,
+                    "byteCount": bytes.count,
+                    "filename": resolvedFilename,
+                    "freshUrl": updated.url ?? "",
+                    "updatedAt": updated.updated_at ?? "",
+                    "title": updated.title
+                ]
+            } catch ConnectorError.unauthenticated {
+                payload = ["ok": false, "error": "unauthenticated"]
+            } catch ConnectorError.writeForbidden(let body) {
+                payload = ["ok": false, "error": "writeForbidden",
+                           "body": body]
+            } catch ConnectorError.storageQuotaExceeded(let body) {
+                payload = ["ok": false, "error": "storageQuotaExceeded",
+                           "body": body]
+            } catch ConnectorError.network(let underlying) {
+                payload = ["ok": false, "error": "network: \(underlying)"]
+            } catch ConnectorError.server(let status, let message) {
+                payload = ["ok": false, "error": "server",
+                           "status": status, "message": message ?? ""]
+            } catch {
+                payload = ["ok": false, "error": "\(error)"]
+            }
+            if let data = try? JSONSerialization.data(
+                withJSONObject: payload,
+                options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: URL(fileURLWithPath: path))
+                NSLog("[TEST-HARNESS] pm_save_smoke → \(path) (\(data.count) bytes)")
             }
         }
     }

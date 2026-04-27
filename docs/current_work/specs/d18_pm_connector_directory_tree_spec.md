@@ -99,17 +99,21 @@ rak: agreed on both initial and eventual scope
 | 2026-04-27 | **Tree contents** (Q1): show directories + supported files (`.md` initially) as active rows; unsupported file types render as **disabled** rows with hover tooltip "file type not supported." Lets users see the full directory contents while making editor-supported files visually distinct. | RAK |
 | 2026-04-27 | **Connector model** (Q2): Mac Finder-style sidebar with multiple connections (Local + MCP-based remote connections). The connection-creation UX (Finder-like "Connect to Server" workflow, focused on MCP) is split out as **D19 — Connection-management UX**. D18 stays scoped to: connector protocol, Local connector, one PortableMind connection (manually configured), tree UI, read-only open. | RAK |
 | 2026-04-27 | **Open-on-click** (Q3): read-only file open ships in D18. Save-back is **committed for a future release** (not indefinitely deferred); slotted as a deliverable after D19 once the connection-management UX is in place. | RAK |
-| 2026-04-27 | **Auth** (Q4): Keychain-seeded API token for dev in D18; sign-in UI is a downstream deliverable that travels with D19's connection-management UX. | RAK |
+| 2026-04-27 | **Auth** (Q4): Keychain-seeded API token for dev in D18; sign-in UI is a downstream deliverable that travels with the connection-management UX. | RAK |
+| 2026-04-27 | **Re-ordering of follow-on deliverables**: PortableMind save-back is moved ahead of connection-management. New ordering: **D19 = save-back** (was: connection-management); **D20 = connection-management** (was: save-back). Reason: save-back closes the human↔agent feedback loop on PM-stored docs — the dogfood `**Question:**` → Decision-log workflow currently only works for local files. Connection-management is necessary eventually but the Debug menu's `Set PortableMind Token…` affordance plus the harness `pm_token_set` action is sufficient for solo developer use until then. | RAK |
 
 
 ## Out of scope (deliverables that follow D18)
 
-- **D19 — Connection-management UX.** Finder-style "Connect to MCP server" workflow: add/edit/remove connections, sign-in UI, OAuth or token paste, token refresh. D18 ships with a single manually-configured PortableMind connection.
-- **Write-back to PortableMind** (save → API). Committed for a future release; slotted after D19.
+Order updated 2026-04-27 per CD direction — save-back unblocks the dogfood loop on PM-stored docs and ships ahead of connection-management.
+
+- **D19 — PortableMind save-back.** `Connector.saveFile(_ node:bytes:)`, write path against the LlmFile API (PUT/PATCH `/api/v1/llm_files/:id` or equivalent), tab-mode flip from read-only to editable for PM-origin tabs. Read-only behavior in D18 stays as a fallback when save-back is unavailable (network down, permissions denied, etc.).
+- **D20 — Connection-management UX.** Finder-style "Connect to MCP server" workflow: add/edit/remove connections, sign-in UI, OAuth or token paste, token refresh. D18 ships with a single manually-configured PortableMind connection (Debug menu).
 - Search across the PM tree.
 - Non-`.md` file viewers (CSV, image, PDF, etc.) — D18 shows them as disabled rows.
 - File detail / metadata side panel.
 - Drag-and-drop between Local and PortableMind roots.
+- Projects-app routing (semantic integration: route Decision-log table edits in PM Project artifacts back into the PortableMind Projects app). Different category — not just file storage. Earmarked for a deliverable in the D21+ window with its own spec frame.
 
 ## Acceptance criteria (provisional — finalized in plan after open questions resolve)
 

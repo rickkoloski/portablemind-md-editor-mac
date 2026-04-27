@@ -215,6 +215,22 @@ final class HarnessCommandPoller {
             // than for command-file disappearance.
             pmApiSmoke(to: params["path"] as? String
                 ?? "/tmp/mdeditor-pm-api.json")
+        // D18 phase 3 — sidebar / connector tree inspection.
+        case "dump_sidebar_state":
+            dumpSidebarState(to: params["path"] as? String
+                ?? "/tmp/mdeditor-sidebar.json")
+        case "expand_sidebar_path":
+            expandSidebarPath(connectorID: params["connectorID"] as? String,
+                              path: params["path"] as? String)
+        case "collapse_sidebar_path":
+            collapseSidebarPath(connectorID: params["connectorID"] as? String,
+                                path: params["path"] as? String)
+        case "dump_connector_tree":
+            // ASYNC: bypasses UI, calls connector.children directly.
+            dumpConnectorTree(connectorID: params["connectorID"] as? String,
+                              parentPath: params["parentPath"] as? String,
+                              to: params["path"] as? String
+                                ?? "/tmp/mdeditor-connector-tree.json")
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -413,6 +429,10 @@ final class HarnessCommandPoller {
         }
         do {
             try KeychainTokenStore.shared.save(token: token)
+            // Mirror Debug menu behavior: nudge the workspace to
+            // re-evaluate its connector list so the PortableMind root
+            // appears immediately.
+            WorkspaceStore.shared.reconcileConnectors()
             writeJSONError(["saved": true, "length": token.count],
                            to: resultPath)
         } catch {
@@ -433,6 +453,146 @@ final class HarnessCommandPoller {
             }
         } catch {
             writeJSONError(["present": false, "error": "\(error)"], to: path)
+        }
+    }
+
+    // MARK: - D18 phase 3: sidebar / connector tree inspection
+
+    /// `dump_sidebar_state` — emit each connector's root, expansion
+    /// state, and any loaded subtrees. Recursive: only loaded
+    /// subtrees materialize; unloaded ones show `loaded: false`.
+    private func dumpSidebarState(to path: String) {
+        let store = WorkspaceStore.shared
+        let connectors = store.connectors
+        var roots: [[String: Any]] = []
+        for connector in connectors {
+            guard let model = store.treeViewModels[connector.id] else { continue }
+            let rootNode = connector.rootNode
+            roots.append(serializeNode(rootNode, viewModel: model))
+        }
+        let payload: [String: Any] = ["roots": roots]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+            NSLog("[TEST-HARNESS] dump_sidebar_state → \(path)")
+        }
+    }
+
+    private func serializeNode(_ node: ConnectorNode,
+                               viewModel: ConnectorTreeViewModel) -> [String: Any] {
+        var dict: [String: Any] = [
+            "connectorID": viewModel.connector.id,
+            "id": node.id,
+            "name": node.name,
+            "path": node.path,
+            "kind": node.kind == .directory ? "directory" : "file",
+            "supported": node.isSupported,
+            "expanded": viewModel.isExpanded(node.path),
+            "loading": viewModel.isLoading(node.path),
+        ]
+        if let count = node.fileCount { dict["fileCount"] = count }
+        if let tenant = node.tenant {
+            dict["tenant"] = [
+                "id": tenant.id,
+                "name": tenant.name,
+                "enterpriseIdentifier": tenant.enterpriseIdentifier
+            ]
+        }
+        if let error = viewModel.errorMessage(at: node.path) {
+            dict["error"] = error
+        }
+        if node.kind == .directory {
+            if let kids = viewModel.childrenIfLoaded(at: node.path) {
+                dict["loaded"] = true
+                if viewModel.isExpanded(node.path) {
+                    dict["children"] = kids.map { serializeNode($0, viewModel: viewModel) }
+                }
+            } else {
+                dict["loaded"] = false
+            }
+        }
+        return dict
+    }
+
+    /// `expand_sidebar_path` — programmatically expand a path on the
+    /// connector's tree. Triggers async load if needed; harness
+    /// driver waits for `dump_sidebar_state` to show `loading: false`
+    /// before asserting.
+    private func expandSidebarPath(connectorID: String?, path: String?) {
+        guard let connectorID, let path,
+              let model = WorkspaceStore.shared.treeViewModels[connectorID]
+        else { return }
+        Task { @MainActor in
+            await model.expand(path: path)
+        }
+    }
+
+    /// `collapse_sidebar_path` — programmatically collapse a path.
+    /// Preserves cached children for instant re-expand.
+    private func collapseSidebarPath(connectorID: String?, path: String?) {
+        guard let connectorID, let path,
+              let model = WorkspaceStore.shared.treeViewModels[connectorID]
+        else { return }
+        model.collapse(path: path)
+    }
+
+    /// `dump_connector_tree` — bypass the UI; call
+    /// `connector.children(of: parentPath)` directly. Lets the
+    /// harness distinguish API-level failure from UI-level failure.
+    /// Async; driver waits for the result file to be non-empty.
+    private func dumpConnectorTree(connectorID: String?,
+                                   parentPath: String?,
+                                   to path: String) {
+        try? Data().write(to: URL(fileURLWithPath: path))
+        guard let connectorID,
+              let connector = WorkspaceStore.shared.connectors.first(
+                where: { $0.id == connectorID })
+        else {
+            writeJSONError(
+                ["ok": false, "error": "no connector with id \(connectorID ?? "<nil>")"],
+                to: path)
+            return
+        }
+        Task.detached {
+            let payload: [String: Any]
+            do {
+                let kids = try await connector.children(of: parentPath)
+                payload = [
+                    "ok": true,
+                    "count": kids.count,
+                    "children": kids.map { node in
+                        var dict: [String: Any] = [
+                            "id": node.id,
+                            "name": node.name,
+                            "path": node.path,
+                            "kind": node.kind == .directory ? "directory" : "file",
+                            "supported": node.isSupported,
+                        ]
+                        if let count = node.fileCount { dict["fileCount"] = count }
+                        if let tenant = node.tenant {
+                            dict["tenant"] = [
+                                "id": tenant.id,
+                                "name": tenant.name,
+                                "enterpriseIdentifier": tenant.enterpriseIdentifier
+                            ]
+                        }
+                        return dict
+                    }
+                ]
+            } catch ConnectorError.unauthenticated {
+                payload = ["ok": false, "error": "unauthenticated"]
+            } catch ConnectorError.network(let underlying) {
+                payload = ["ok": false, "error": "network: \(underlying)"]
+            } catch ConnectorError.server(let status, let message) {
+                payload = ["ok": false, "error": "server",
+                           "status": status, "message": message ?? ""]
+            } catch {
+                payload = ["ok": false, "error": "\(error)"]
+            }
+            if let data = try? JSONSerialization.data(
+                withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: URL(fileURLWithPath: path))
+            }
         }
     }
 

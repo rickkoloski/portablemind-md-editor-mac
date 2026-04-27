@@ -148,6 +148,7 @@ struct MdEditorApp: App {
         guard !token.isEmpty else { return }
         do {
             try KeychainTokenStore.shared.save(token: token)
+            workspace.reconcileConnectors()
         } catch {
             let err = NSAlert(error: error)
             err.runModal()
@@ -157,6 +158,7 @@ struct MdEditorApp: App {
     private func clearPortableMindToken() {
         do {
             try KeychainTokenStore.shared.clear()
+            workspace.reconcileConnectors()
         } catch {
             let err = NSAlert(error: error)
             err.runModal()

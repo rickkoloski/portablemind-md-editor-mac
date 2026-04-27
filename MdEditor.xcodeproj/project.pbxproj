@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02BDD53DDE0E484F5F578D49 /* PortableMindConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 711283719E1D5964FCE23CC5 /* PortableMindConnector.swift */; };
 		05113E83F30B6762FB626B59 /* KeyboardBindings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC7870DDD57C42F194380DA1 /* KeyboardBindings.swift */; };
 		06850BEF600A8C2F393FF554 /* LocalConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FFDFB78E7F61365C589041F /* LocalConnector.swift */; };
 		07A1F1E2E8DAACE51B02FDC5 /* StringLineLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8B74950ACAAA2D21C1E3B09 /* StringLineLocation.swift */; };
@@ -56,7 +57,9 @@
 		93C61A0D688DE99421473564 /* ExternalCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2915770F0DE907514BFA4BCB /* ExternalCommand.swift */; };
 		96CD4BE30D86169942098782 /* TabStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736D7D2A74FC7C773CBEDC6B /* TabStore.swift */; };
 		988B12F2F02C37FD3D9C8E83 /* PortableMindAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F873FF8CD782C99039894CEE /* PortableMindAPIClient.swift */; };
+		99756BF19257CA7108BA9F63 /* ConnectorTreeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF23193AD08481F5D8FBF992 /* ConnectorTreeViewModel.swift */; };
 		9C2088280AABDF39A2A1C227 /* ToolbarAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CC7F2CDE174D7A636EED51B /* ToolbarAction.swift */; };
+		9CA5D0D5F5527C177655C451 /* ConnectorTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7FB5222CF0C6296CDC4B2F /* ConnectorTreeView.swift */; };
 		AA804B904BC3804E03FE4458 /* DocumentTypeRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB27C546F668F30E645724B /* DocumentTypeRegistry.swift */; };
 		ABB890A28AF3D932A0C43A9C /* MarkdownDocumentType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87B7D9987868179EBCB7AF10 /* MarkdownDocumentType.swift */; };
 		AD77010A6B731F8E0BF110F6 /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = F502CAF4F917C92730CA9663 /* Typography.swift */; };
@@ -72,7 +75,6 @@
 		D87846C8B4A004B93B646AB0 /* SetViewCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408E9C472E809997158FDC0B /* SetViewCommand.swift */; };
 		DD8BABA54508A0F3656EA66B /* HarnessActiveSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5AC25DB3CFE00FB09F46C3B /* HarnessActiveSink.swift */; };
 		E35DBCA24ED08AEA0EFF2087 /* PortableMindEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E608C92087DA2ED99857040 /* PortableMindEnvironment.swift */; };
-		EB39075ABB7FA96955213606 /* FolderTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B5DFD3FDD072F772FC2A07 /* FolderTreeView.swift */; };
 		EE45FB6087116ECA1BB182BE /* MutationHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C80DE85975844E9F6898D021 /* MutationHelpers.swift */; };
 		F8421E4664863007B6773E37 /* EditorDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D086F044F795F5BE8F33D4 /* EditorDocument.swift */; };
 /* End PBXBuildFile section */
@@ -100,6 +102,7 @@
 		2915770F0DE907514BFA4BCB /* ExternalCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalCommand.swift; sourceTree = "<group>"; };
 		294BD3B18C115E29D5C5F78F /* RenderTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderTypes.swift; sourceTree = "<group>"; };
 		2BA7C352C4BEA557B5E5A07A /* LaunchSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchSmokeTests.swift; sourceTree = "<group>"; };
+		2E7FB5222CF0C6296CDC4B2F /* ConnectorTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorTreeView.swift; sourceTree = "<group>"; };
 		38B8648E855C0852B13DBD8B /* InlineCodeMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineCodeMutation.swift; sourceTree = "<group>"; };
 		3CBAA081C0FC098EFA83A8EC /* URLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSchemeHandler.swift; sourceTree = "<group>"; };
 		3F61A04D941BAF0ECBD6E57F /* LineNumberRulerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberRulerView.swift; sourceTree = "<group>"; };
@@ -112,6 +115,7 @@
 		62DE46573E4A695892A562C4 /* EditorContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorContainer.swift; sourceTree = "<group>"; };
 		68B749D1CDF660EAF232A846 /* DocumentType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentType.swift; sourceTree = "<group>"; };
 		69817DBA04965C17C8E978A7 /* OpenFileCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenFileCommand.swift; sourceTree = "<group>"; };
+		711283719E1D5964FCE23CC5 /* PortableMindConnector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortableMindConnector.swift; sourceTree = "<group>"; };
 		733C5884A193A7F2F12492FE /* LiveRenderTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveRenderTextView.swift; sourceTree = "<group>"; };
 		736D7D2A74FC7C773CBEDC6B /* TabStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabStore.swift; sourceTree = "<group>"; };
 		73B7A515AA3E6A1A05AE26A8 /* Connector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connector.swift; sourceTree = "<group>"; };
@@ -144,7 +148,6 @@
 		C72B9481B2B2DEC236C3C389 /* OpenFolderCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenFolderCommand.swift; sourceTree = "<group>"; };
 		C80DE85975844E9F6898D021 /* MutationHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationHelpers.swift; sourceTree = "<group>"; };
 		C8B74950ACAAA2D21C1E3B09 /* StringLineLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringLineLocation.swift; sourceTree = "<group>"; };
-		D0B5DFD3FDD072F772FC2A07 /* FolderTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderTreeView.swift; sourceTree = "<group>"; };
 		D5AC25DB3CFE00FB09F46C3B /* HarnessActiveSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessActiveSink.swift; sourceTree = "<group>"; };
 		DA3D9A8C4E9F19A62262219D /* TK1Serializer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TK1Serializer.swift; sourceTree = "<group>"; };
 		DA53ED5FC52B03E72A289E5B /* EditorFocusTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorFocusTarget.swift; sourceTree = "<group>"; };
@@ -152,6 +155,7 @@
 		E332B869BD3500F673ADDA2C /* MutationPrimitive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationPrimitive.swift; sourceTree = "<group>"; };
 		E41972F49DFED5E127BBD907 /* NumberedListMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberedListMutation.swift; sourceTree = "<group>"; };
 		ECF957794ED2ACD3B1ABFE92 /* TableAttributeKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableAttributeKeys.swift; sourceTree = "<group>"; };
+		EF23193AD08481F5D8FBF992 /* ConnectorTreeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorTreeViewModel.swift; sourceTree = "<group>"; };
 		F2484BD135E61A6A91F4793E /* HeadingMutations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadingMutations.swift; sourceTree = "<group>"; };
 		F502CAF4F917C92730CA9663 /* Typography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Typography.swift; sourceTree = "<group>"; };
 		F853A094F4BFC4386FAA5854 /* CommandSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandSurface.swift; sourceTree = "<group>"; };
@@ -301,6 +305,7 @@
 			children = (
 				F873FF8CD782C99039894CEE /* PortableMindAPIClient.swift */,
 				BFAE7E5D6F6118A49F7BDE9F /* PortableMindAPITypes.swift */,
+				711283719E1D5964FCE23CC5 /* PortableMindConnector.swift */,
 				7E608C92087DA2ED99857040 /* PortableMindEnvironment.swift */,
 			);
 			path = PortableMind;
@@ -309,8 +314,9 @@
 		8BB8B8696D2138B7DCCDFE4C /* WorkspaceUI */ = {
 			isa = PBXGroup;
 			children = (
+				2E7FB5222CF0C6296CDC4B2F /* ConnectorTreeView.swift */,
+				EF23193AD08481F5D8FBF992 /* ConnectorTreeViewModel.swift */,
 				A03D8CF6CE596C7EA09CBC7D /* EmptyEditorView.swift */,
-				D0B5DFD3FDD072F772FC2A07 /* FolderTreeView.swift */,
 				A8F1E5A7D9544B0E06705EBD /* TabBarView.swift */,
 				A5CD85D99BA4A020FC41BBAF /* WorkspaceView.swift */,
 			);
@@ -548,6 +554,8 @@
 				6212CE254D70E34FE5108C7D /* CommandDispatcher.swift in Sources */,
 				323A753C16056D56B441C81B /* CommandSurface.swift in Sources */,
 				16EC716D23522BC7B707D0A0 /* Connector.swift in Sources */,
+				9CA5D0D5F5527C177655C451 /* ConnectorTreeView.swift in Sources */,
+				99756BF19257CA7108BA9F63 /* ConnectorTreeViewModel.swift in Sources */,
 				BD2F1714497FD0E4A637E025 /* CursorLineTracker.swift in Sources */,
 				5E3A4AA0FD5E03864976B236 /* DebugProbe.swift in Sources */,
 				5C734BA72E654D8231454FCE /* DocumentType.swift in Sources */,
@@ -560,7 +568,6 @@
 				4BE45061582C8A8E09F25BC0 /* EmptyEditorView.swift in Sources */,
 				93C61A0D688DE99421473564 /* ExternalCommand.swift in Sources */,
 				66A37C5D45DF3435B1A0639A /* ExternalEditWatcher.swift in Sources */,
-				EB39075ABB7FA96955213606 /* FolderTreeView.swift in Sources */,
 				15745820A86D52F1E766A371 /* FolderTreeWatcher.swift in Sources */,
 				DD8BABA54508A0F3656EA66B /* HarnessActiveSink.swift in Sources */,
 				3CE55B77E9B4356FF7DFAD93 /* HarnessCommandPoller.swift in Sources */,
@@ -585,6 +592,7 @@
 				889FAC8100CC57FC80459DF7 /* OpenFolderCommand.swift in Sources */,
 				988B12F2F02C37FD3D9C8E83 /* PortableMindAPIClient.swift in Sources */,
 				38EB69A8B24FF9E4421EB31D /* PortableMindAPITypes.swift in Sources */,
+				02BDD53DDE0E484F5F578D49 /* PortableMindConnector.swift in Sources */,
 				E35DBCA24ED08AEA0EFF2087 /* PortableMindEnvironment.swift in Sources */,
 				56408ED1057CE7107CBEEC31 /* RenderTypes.swift in Sources */,
 				5B8EA51A489DEF23F9347DE7 /* SecurityScopedBookmarkStore.swift in Sources */,

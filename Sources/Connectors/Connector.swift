@@ -50,6 +50,12 @@ protocol Connector: AnyObject, Sendable {
     /// "icloud", "network".
     var rootIconName: String { get }
 
+    /// Synthetic root node for the connector — the row the sidebar
+    /// shows at the top of this connector's section. Its `path` is
+    /// the value `children(of:)` resolves as "the root of this
+    /// connector". Kind is always `.directory`.
+    var rootNode: ConnectorNode { get }
+
     /// Children of `path`. `nil` means root.
     func children(of path: String?) async throws -> [ConnectorNode]
 

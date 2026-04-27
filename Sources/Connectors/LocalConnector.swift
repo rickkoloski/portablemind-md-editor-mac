@@ -50,6 +50,19 @@ final class LocalConnector: Connector {
     let rootIconName = "folder"
     var rootName: String { rootURL.lastPathComponent }
 
+    var rootNode: ConnectorNode {
+        ConnectorNode(
+            id: "\(id):\(rootURL.path)",
+            name: rootURL.lastPathComponent,
+            path: rootURL.path,
+            kind: .directory,
+            fileCount: nil,
+            tenant: nil,
+            isSupported: true,
+            connector: self
+        )
+    }
+
     func children(of path: String?) async throws -> [ConnectorNode] {
         // Local IO is fast; the async surface delegates to the sync
         // implementation. Future: if directory walks become slow on
@@ -121,19 +134,4 @@ final class LocalConnector: Connector {
         url.pathExtension.lowercased() == "md"
     }
 
-    /// Convenience: build a root ConnectorNode for the current rootURL.
-    /// Used by WorkspaceStore when the sidebar wants to render the
-    /// connector's root row.
-    func rootNode() -> ConnectorNode {
-        ConnectorNode(
-            id: "\(id):\(rootURL.path)",
-            name: rootURL.lastPathComponent,
-            path: rootURL.path,
-            kind: .directory,
-            fileCount: nil,
-            tenant: nil,
-            isSupported: true,
-            connector: self
-        )
-    }
 }

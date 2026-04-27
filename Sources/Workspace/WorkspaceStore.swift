@@ -1,8 +1,8 @@
 import Combine
 import Foundation
 
-/// The workspace — top-level observable owning the current root
-/// folder, the tree model, and the tab store. Holds the security-
+/// The workspace — top-level observable owning the active connectors,
+/// their tree view-models, and the tab store. Holds the security-
 /// scoped access for the duration of the workspace and re-persists
 /// state (workspace bookmark, open tabs, focused tab) as it changes.
 @MainActor
@@ -10,10 +10,17 @@ final class WorkspaceStore: ObservableObject {
     static let shared = WorkspaceStore()
 
     @Published var rootURL: URL?
-    @Published var rootNode: ConnectorNode?
-    /// D18 phase 1 — the active connectors. For now: at most one
-    /// LocalConnector. Phase 3 adds PortableMindConnector as a peer.
+
+    /// Active connectors. Computed by `reconcileConnectors()` from the
+    /// current `rootURL` (Local) and Keychain token presence
+    /// (PortableMind). D19 will replace the keychain-presence
+    /// heuristic with a connection-management UX.
     @Published private(set) var connectors: [any Connector] = []
+
+    /// One view-model per connector, keyed by `connector.id`. Holds
+    /// expansion state, async-loaded children, loading flags,
+    /// per-path errors. Recreated when `connectors` changes.
+    @Published private(set) var treeViewModels: [String: ConnectorTreeViewModel] = [:]
 
     let tabs = TabStore()
 
@@ -48,6 +55,10 @@ final class WorkspaceStore: ObservableObject {
            )
         {
             setRoot(url: resolved.url, stopAccessing: resolved.stopAccessing, persistBookmark: false)
+        } else {
+            // No persisted folder — still try to bring up a PM
+            // connector if a token is present.
+            reconcileConnectors()
         }
         restorePersistedTabs()
         ready = true
@@ -68,15 +79,8 @@ final class WorkspaceStore: ObservableObject {
 
         rootURL = url
 
-        // Phase 1: a single LocalConnector backs the workspace tree.
-        // Phase 3 will append a PortableMindConnector here when the
-        // user has configured one.
-        let local = LocalConnector(rootURL: url)
-        connectors = [local]
-        rootNode = local.rootNode()
-
         treeWatcher = FolderTreeWatcher(url: url) { [weak self] in
-            Task { @MainActor in self?.refreshTreeRoot() }
+            Task { @MainActor in self?.reconcileConnectors() }
         }
 
         if persistBookmark {
@@ -85,20 +89,39 @@ final class WorkspaceStore: ObservableObject {
                 forKey: SecurityScopedBookmarkKeys.workspaceRoot
             )
         }
+        reconcileConnectors()
     }
 
-    /// Force a re-load of the root node — cheap way to trigger
-    /// SwiftUI's OutlineGroup to re-query children. Called by the
-    /// folder watcher on external changes.
-    func refreshTreeRoot() {
-        guard let url = rootURL else { return }
-        // LocalConnector's rootURL is immutable; constructing a fresh
-        // instance (with the same URL) is the cheap way to invalidate
-        // child caches downstream and nudge SwiftUI's OutlineGroup to
-        // re-query.
-        let local = LocalConnector(rootURL: url)
-        connectors = [local]
-        rootNode = local.rootNode()
+    /// Rebuild the connectors array from current state:
+    /// - LocalConnector if `rootURL` is set.
+    /// - PortableMindConnector if a bearer token is present in the
+    ///   Keychain.
+    ///
+    /// Called from setRoot, restoreFromBookmarks, the FolderTree
+    /// watcher (external changes), and the Debug menu's token
+    /// set/clear so the sidebar reacts to either workspace-root or
+    /// token-presence changes without a relaunch.
+    func reconcileConnectors() {
+        var list: [any Connector] = []
+        if let url = rootURL {
+            list.append(LocalConnector(rootURL: url))
+        }
+        // `try?` flattens nested optionals — load() returns String?
+        // and try? produces String? (nil on either throw or absent).
+        if let token = try? KeychainTokenStore.shared.load(), !token.isEmpty {
+            list.append(PortableMindConnector())
+        }
+        connectors = list
+
+        // Rebuild view-models. Drop ones whose connector is gone;
+        // create fresh ones for new connectors. (Future: preserve
+        // expansion state across reconciliations by keying on
+        // connector.id.)
+        var models: [String: ConnectorTreeViewModel] = [:]
+        for connector in list {
+            models[connector.id] = ConnectorTreeViewModel(connector: connector)
+        }
+        treeViewModels = models
     }
 
     // MARK: - Tab persistence

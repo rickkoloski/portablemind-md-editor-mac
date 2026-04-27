@@ -20,6 +20,26 @@ Each phase ends in a commit. Stop and surface a `**Question:**` to CD if a phase
 
 ---
 
+## 0.1 Verification approach (harness-first)
+
+Per `Sources/Debug/HarnessCommandPoller.swift` — the project's debug-build JSON-file IPC harness — D18 verifies **primarily through extended harness actions, not XCUITest**. The harness keeps focus wherever the user puts it; CC and CD can both work in parallel windows while regression sweeps run. XCUITest grabs input focus and is currently brittle (see i03).
+
+**Stack split for D18:**
+
+- **Harness actions** — primary regression surface. Each phase below lists the actions it adds. Assertions read JSON result files via `Bash cat | jq` from CC's session, no app focus needed.
+- **XCUITest** — single launch-smoke per area. The current 3 failing tests (i03) get fixed in phase 6 alongside the manual test plan. Do **not** block phases 1–5 on these; they assert reachability, not behavior, and the behavior surface is the harness.
+- **Manual test plan** — phase 6 deliverable; mirrors the harness action list with human-readable steps so a non-CC tester can reproduce.
+
+**Action conventions** (extending the harness):
+- New actions slot into `HarnessCommandPoller.dispatch(action:params:)` (search `TEST-HARNESS:` markers in the source for every accommodation made for testing).
+- Result files write atomically to `/tmp/mdeditor-<topic>.json`.
+- File-disappearance of `/tmp/mdeditor-command.json` is the completion signal (D14/D15 contract — no sleeps in the driver).
+- `dump_*` actions are read-only; verbs that mutate state are imperative (`expand_*`, `open_*`, `collapse_*`).
+
+**i03 (pre-existing XCUITest failures):** the three failing tests look for `md-editor.main-editor` accessibility identifier on launch, but the empty-editor placeholder mounts when no document is open. Phase 6 either (a) opens a doc in setUp before asserting, or (b) adds a shadow identifier on the empty-editor placeholder. Pick during phase 6.
+
+---
+
 ## Phase 1 — Connector protocol + LocalConnector port
 
 **Goal:** introduce the protocol; refactor the existing local tree to implement it. User-visible behavior unchanged.
@@ -123,11 +143,16 @@ enum ConnectorError: Error {
 # 4. Or, command line: security add-generic-password -s "ai.portablemind.md-editor.harmoniq-token" -a "default" -w "<token>"
 ```
 
+**Harness actions added** (Phase 2):
+- `pm_api_smoke` → `{path: "/tmp/mdeditor-pm-api.json"}` — calls `listDirectories(parentPath: nil)`, writes the raw response (or error envelope) so CC can `cat | jq` and verify shape.
+- `pm_token_set` → `{token: "..."}` — writes to Keychain via the same path the Debug menu would.
+- `pm_token_dump` → `{path: "/tmp/mdeditor-pm-token.json"}` — emits `{present: bool, length: Int}` (never the token itself).
+
 **DOD:**
-- `PortableMindAPIClient` unit-tested (or smoke-tested via a `#if DEBUG` console command) against a real or mocked Harmoniq backend; verify `listDirectories(parentPath: nil)` returns the user's root dirs.
-- Token store round-trips correctly.
-- App builds and launches; no UI changes visible to a user without the debug menu open.
-- No PII / token logging in release builds.
+- `pm_api_smoke` against a localhost Harmoniq with a seeded test-tenant token returns directories matching `seed.rb` fixture state. Run from CC via `Bash`: write command JSON, wait for `/tmp/mdeditor-command.json` to disappear, `cat /tmp/mdeditor-pm-api.json`, assert.
+- `pm_token_set` + `pm_token_dump` round-trip correctly.
+- App builds and launches; no UI changes visible without the Debug menu open.
+- No PII / token logging in release builds (release build excludes the harness via `#if DEBUG`).
 
 **Commit:** `D18 phase 2 — PortableMind API client + Keychain token store`
 
@@ -153,12 +178,18 @@ enum ConnectorError: Error {
 - On `ConnectorError.unauthenticated` → row text becomes "Not signed in — set token in Debug menu" (D19 will replace with proper UI).
 - On `ConnectorError.network` → "Couldn't reach PortableMind" with a retry chevron.
 
+**Harness actions added** (Phase 3):
+- `dump_sidebar_state` → `{path: "/tmp/mdeditor-sidebar.json"}` — emits `{roots: [{connectorID, rootName, expanded, children: [...]}]}`. Recursive: only loaded subtrees are emitted; unloaded subtrees show `{loaded: false}`. Lets CC verify sidebar state without focusing the window.
+- `expand_sidebar_path` → `{connectorID, path}` — programmatically expands a node; triggers async load. Idempotent.
+- `collapse_sidebar_path` → `{connectorID, path}` — collapses; preserves cache.
+- `dump_connector_tree` → `{connectorID, parentPath, path: "/tmp/mdeditor-connector-tree.json"}` — bypasses UI, calls `connector.children(of: parentPath)` directly. Lets CC distinguish API-level failure from UI-level failure.
+
 **DOD:**
 - Sidebar shows two roots: **Local** (existing tree) + **PortableMind**.
-- Expanding PortableMind calls Harmoniq, lists root directories with chevrons where `subdirectory_count > 0`.
-- Drilling down expands the next level lazily.
-- Network errors and missing-token states render as inline rows, not crashes.
-- Manual smoke: navigate three levels deep into the PM tree; collapse and re-expand; values cached for the session.
+- `dump_sidebar_state` shows two roots with `connectorID = "local"` and `connectorID = "pm.<connection-id>"`.
+- `expand_sidebar_path {connectorID: "pm…", path: "/"}` → `dump_sidebar_state` shows root directories with chevrons where `subdirectory_count > 0`.
+- Drilling three levels deep via repeated `expand_sidebar_path` succeeds; `collapse_sidebar_path` followed by re-expand returns from cache (no second network call — verifiable via Harmoniq access log or a `pm_api_call_count` action if useful).
+- Network errors / missing-token states render as inline rows; `dump_sidebar_state` reflects them (`error: "..."` field on the affected node) — not crashes.
 
 **Commit:** `D18 phase 3 — PortableMindConnector + multi-root sidebar`
 
@@ -180,13 +211,14 @@ enum ConnectorError: Error {
   - Disable click handler (no `openFile` call).
   - `toolTip = "file type not supported"` (localizable string).
 
+**Harness actions added / extended** (Phase 4):
+- `dump_sidebar_state` (extended) — each node now includes `{tenantBadge: {initials, tooltip, fgHex, bgHex} | null, supported: bool}`. Lets CC assert badge presence/absence + correct initials per row from a JSON dump.
+
 **DOD:**
-- Cross-tenant rows in PM tree show pill badges with correct initials and colors.
-- Hover over a badge reveals the tenant's full display name.
-- Same-tenant rows have no badge.
-- Non-`.md` files appear in the tree but are visibly disabled (greyed); hover shows the tooltip; click is a no-op.
-- Manual test plan §C/§D draft sketched (captured in phase 6's manual_test_plan).
-- Accessibility: badge has `accessibilityLabel = "shared from <tenant.name>"`; disabled file row uses `accessibilityRole = .staticText` instead of button.
+- Cross-tenant rows in PM tree show pill badges with correct initials and colors. Verifiable via `dump_sidebar_state`: assert `tenantBadge.initials == "RC"` for a known cross-tenant row in the test fixture.
+- Same-tenant rows have `tenantBadge: null`.
+- Non-`.md` files appear in the tree but `supported: false`. Hover tooltip "file type not supported" — verified manually in phase 6 (tooltips are AppKit-managed and not introspectable from the harness without screen-grabs).
+- Accessibility: badge has `accessibilityLabel = "shared from <tenant.name>"`; disabled file row uses `accessibilityRole = .staticText` instead of button. Verifiable via the existing `window_info` action.
 
 **Commit:** `D18 phase 4 — cross-tenant badges + unsupported-file disabled rows`
 
@@ -214,13 +246,17 @@ enum ConnectorError: Error {
 - File too large (> 1 MB threshold? — confirm in implementation) → defer with a friendly "preview not supported for files of this size" message; this is a graceful-degradation case, not a regression.
 - Encoding: PM files are stored as UTF-8 per markdown convention; assume UTF-8, fall back to UTF-16 LE BOM detection if needed.
 
+**Harness actions added** (Phase 5):
+- `connector_open_file` → `{connectorID, path}` — programmatically triggers the same flow as a row click; the `connectorID` lets us drive Local vs. PortableMind opens uniformly.
+- `dump_focused_tab_info` (extended from `focused_doc_info`) — adds `{readOnly: bool, origin: "local" | "portablemind", connectorID, sourcePath}` so CC can assert read-only state and origin without inspecting AppKit.
+- `dump_command_state` → `{path: "/tmp/mdeditor-commands.json"}` — emits enabled/disabled state of menu commands `save`, `saveAs`. Verifies ⌘S correctly greys for read-only tabs.
+
 **DOD:**
-- Click a `.md` file in the PM tree → new tab opens with content visible.
-- Tab title = file name; subtitle/pill = "PortableMind • READ-ONLY".
-- `⌘S` is greyed; menu shows tooltip "Save disabled for read-only documents".
-- Edits in the editor are blocked (`isEditable = false`); selection + copy still work.
-- External-edit watcher is NOT attached to PM read-only tabs (no local file to watch).
-- Closing the tab doesn't leak the connector reference.
+- `connector_open_file {connectorID: "pm…", path: "<file>"}` opens a new tab; `dump_focused_tab_info` reports `readOnly: true, origin: "portablemind"`.
+- `dump_command_state` reports `save: false, saveAs: false` while the read-only tab is focused; flips to `save: true` when a Local tab is focused.
+- `set_text` action against a read-only tab is a no-op (or emits a warning that doesn't mutate); subsequent `dump_state` shows storage unchanged.
+- External-edit watcher: `dump_focused_tab_info.watcherActive` is `false` for PM tabs, `true` for Local tabs.
+- Manual: closing the tab doesn't leak the connector reference (Instruments leak detection in phase 6).
 
 **Commit:** `D18 phase 5 — read-only file open from PortableMind connector`
 
@@ -246,12 +282,14 @@ enum ConnectorError: Error {
 
 - `docs/roadmap_ref.md` — D18 → ✅ Complete; add row for D19 — Connection-management UX (status: Pending).
 - `docs/engineering-standards_ref.md` — append a section about connector-driven trees if any new standard surfaced (e.g., "every Connector implementation must surface its root in the sidebar with a stable accessibilityIdentifier of the form `connector-root.<rootName>`").
+- `UITests/LaunchSmokeTests.swift` (and the two MutationTests) — fix i03 by either opening a fixture doc in `setUp()` before asserting on `md-editor.main-editor`, OR adding a shadow accessibilityIdentifier on the empty-editor placeholder so the launch state is testable directly. Pick whichever has lower change surface.
 
 **DOD:**
 - All sections of the manual test plan walked through; results recorded.
 - COMPLETE doc references the test plan, lists findings, and includes the dev token-seeding instructions.
 - Roadmap reflects D18 ✅ and D19 queued.
-- Final commit + push.
+- i03 closed: `xcodebuild test` reports 0 failing UITests. Mark i03 as `Fixed` in `docs/issues_backlog.md`.
+- Final commit; push only after CD review.
 
 **Commit:** `D18 phase 6 — manual test plan, COMPLETE doc, roadmap update`
 

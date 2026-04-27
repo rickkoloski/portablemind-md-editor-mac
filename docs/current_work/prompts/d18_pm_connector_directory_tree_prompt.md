@@ -91,11 +91,23 @@ Resist the urge to land phases 4–5 before phase 3's UI is polished enough to s
 
 ---
 
+## Verification: harness-first, NOT XCUITest-first
+
+**Default to the harness for regression sweeps.** `Sources/Debug/HarnessCommandPoller.swift` is the project's `#if DEBUG` JSON-file IPC: write a command to `/tmp/mdeditor-command.json`, the app polls every 200ms, executes, writes results to known paths under `/tmp/`. File-disappearance of the command file = completion (D14/D15 contract; no sleeps).
+
+Why this matters: the harness **does not grab input focus**. CC and CD can both keep working in their respective windows while a sweep runs. XCUITest, by contrast, hijacks the machine and is currently brittle (i03 — 3 failing pre-existing tests).
+
+**Plan §0.1 (Verification approach)** is binding for D18:
+- Each phase adds harness actions; the plan lists them per phase.
+- New actions slot into `HarnessCommandPoller.dispatch(action:params:)`. Search `TEST-HARNESS:` markers in the source for every accommodation already made for testing — follow the same pattern.
+- Verify by: write command JSON via `Bash`, wait for command file to disappear, `cat /tmp/mdeditor-<topic>.json`, assert.
+- XCUITest is **one** launch-smoke per area, fixed in phase 6 (i03), not blocking phases 1–5.
+
 ## Manual test plan
 
 Plan § Phase 6 sketches the test plan structure (§A–§G). Output goes in `docs/current_work/testing/d18_pm_connector_directory_tree_manual_test_plan.md`.
 
-Per `feedback_manual_test_plans.md`, the manual test plan is a first-class SDLC artifact. Don't skip it. After D18 ships it'll likely graduate to XCUITest for the deterministic parts (sidebar structure, badge presence on cross-tenant rows, disabled-row behavior); the manual plan stays.
+Per `feedback_manual_test_plans.md`, the manual test plan is a first-class SDLC artifact. Don't skip it. The plan mirrors the harness action list with human-readable steps so a non-CC tester can reproduce.
 
 ---
 

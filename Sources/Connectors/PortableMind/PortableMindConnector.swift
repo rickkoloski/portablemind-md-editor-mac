@@ -102,16 +102,69 @@ final class PortableMindConnector: Connector {
         guard node.kind == .file else {
             throw ConnectorError.unsupported("openFile called on directory node")
         }
-        // ConnectorNode.id format for PM file nodes:
-        //   "portablemind:file:<numeric LlmFile id>"
-        let prefix = "\(id):file:"
+        let fileID = try Self.fileID(from: node, connectorID: id)
+        return try await api.fetchFileContent(fileID: fileID)
+    }
+
+    /// D19 phase 3 — PortableMind supports write on any `.file` node.
+    /// Per-file permission denial surfaces as `ConnectorError.writeForbidden`
+    /// from `saveFile`; the editor flips the tab back to read-only at
+    /// that point. Future (D20+): respect a per-node `permissions`
+    /// field if Harmoniq surfaces one in the read response.
+    func canWrite(_ node: ConnectorNode) -> Bool {
+        node.kind == .file
+    }
+
+    /// D19 phase 3 — write `bytes` to the PM file backing `node` via
+    /// `PortableMindAPIClient.updateFile`. Multipart PATCH; the
+    /// LlmFile.title is preserved (we pass it through as the multipart
+    /// filename so the ActiveStorage blob keeps a sensible filename).
+    /// Returns a refreshed ConnectorNode with the new
+    /// `lastSeenUpdatedAt` so callers can pick it up for phase 4's
+    /// conflict prompt.
+    ///
+    /// `force` is reserved for phase 4 (skip the GET-before-PATCH
+    /// optimistic check). Phase 3 ignores it; phase 4 wires it up.
+    func saveFile(_ node: ConnectorNode,
+                  bytes: Data,
+                  force: Bool) async throws -> ConnectorNode {
+        guard node.kind == .file else {
+            throw ConnectorError.unsupported("saveFile called on directory node")
+        }
+        let fileID = try Self.fileID(from: node, connectorID: id)
+        let updated = try await api.updateFile(
+            fileID: fileID,
+            bytes: bytes,
+            filename: node.name)
+        // Build a refreshed node with the new server timestamp.
+        let updatedAt = updated.updated_at.flatMap(
+            ISO8601DateFormatter.fractional.date(from:))
+        return ConnectorNode(
+            id: node.id,
+            name: node.name,
+            path: node.path,
+            kind: node.kind,
+            fileCount: node.fileCount,
+            tenant: node.tenant,
+            isSupported: node.isSupported,
+            lastSeenUpdatedAt: updatedAt ?? node.lastSeenUpdatedAt,
+            connector: self
+        )
+    }
+
+    /// Parse the numeric LlmFile id out of a `ConnectorNode.id` of the
+    /// form `"portablemind:file:<id>"`. Static so both `openFile` and
+    /// `saveFile` share the same parser.
+    private static func fileID(from node: ConnectorNode,
+                               connectorID: String) throws -> Int {
+        let prefix = "\(connectorID):file:"
         guard node.id.hasPrefix(prefix),
               let fileID = Int(node.id.dropFirst(prefix.count))
         else {
             throw ConnectorError.unsupported(
                 "couldn't parse PM file id from node id \(node.id)")
         }
-        return try await api.fetchFileContent(fileID: fileID)
+        return fileID
     }
 
     // MARK: - Helpers

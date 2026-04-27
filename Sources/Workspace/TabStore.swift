@@ -36,12 +36,17 @@ final class TabStore: ObservableObject {
         return doc
     }
 
-    /// Open a document that has no local file backing it (PortableMind
-    /// read-only). De-dupes on origin so re-clicking the same PM file
-    /// re-focuses the existing tab.
+    /// Open a document that has no local file backing it (e.g.
+    /// PortableMind). The caller supplies the ConnectorNode the doc
+    /// originated from; `isReadOnly` is computed from the connector's
+    /// `canWrite(node)` capability check (D19 phase 3 — PM tabs flip
+    /// to editable when writable). De-dupes on origin so re-clicking
+    /// the same PM file re-focuses the existing tab.
     @discardableResult
-    func openReadOnly(content: String,
-                      origin: EditorDocument.Origin) -> EditorDocument {
+    func openFromConnector(content: String,
+                           node: ConnectorNode) -> EditorDocument {
+        let origin = Self.origin(for: node)
+        // De-dupe on (connectorID, fileID) for PM tabs.
         if case .portableMind(let cid, let fid, _) = origin,
            let existingIndex = documents.firstIndex(where: {
                if case .portableMind(let xcid, let xfid, _) = $0.origin {
@@ -53,15 +58,36 @@ final class TabStore: ObservableObject {
             return documents[existingIndex]
         }
         let type: any DocumentType = MarkdownDocumentType()
+        let isReadOnly = !node.connector.canWrite(node)
         let doc = EditorDocument(url: nil,
                                  source: content,
                                  documentType: type,
-                                 isReadOnly: true,
-                                 origin: origin)
+                                 isReadOnly: isReadOnly,
+                                 origin: origin,
+                                 connectorNode: node)
         let insertIndex = (focusedIndex.map { $0 + 1 }) ?? documents.count
         documents.insert(doc, at: insertIndex)
         focusedIndex = insertIndex
         return doc
+    }
+
+    /// Build the EditorDocument.Origin for a given ConnectorNode.
+    private static func origin(for node: ConnectorNode)
+        -> EditorDocument.Origin
+    {
+        let cid = node.connector.id
+        if cid == "local" { return .local }
+        let prefix = "\(cid):file:"
+        let fileID: Int = {
+            if node.id.hasPrefix(prefix),
+               let i = Int(node.id.dropFirst(prefix.count)) {
+                return i
+            }
+            return -1
+        }()
+        return .portableMind(connectorID: cid,
+                             fileID: fileID,
+                             displayPath: node.path)
     }
 
     /// Close the tab for document `id`. Moves focus to the neighbor

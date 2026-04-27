@@ -215,6 +215,13 @@ final class HarnessCommandPoller {
             // than for command-file disappearance.
             pmApiSmoke(to: params["path"] as? String
                 ?? "/tmp/mdeditor-pm-api.json")
+        case "connector_save_focused":
+            // D19 phase 3 — async; calls doc.save() on the focused
+            // tab (routes through the connector). Result envelope
+            // emits ok / error / dirty / isReadOnly so the driver
+            // can verify the save path end-to-end.
+            connectorSaveFocused(to: params["path"] as? String
+                ?? "/tmp/mdeditor-save-result.json")
         case "pm_save_smoke":
             // D19 phase 2 — ASYNC; writes `text` as the new content
             // of the LlmFile with id `fileID`. Result envelope at
@@ -323,28 +330,37 @@ final class HarnessCommandPoller {
     /// D14 harness — invoke save() on the focused doc and write
     /// success/error info. Bypasses the menu chain so we can validate
     /// the EditorDocument.save() write path without driving NSMenu.
+    /// D19 phase 3 — save() is now async (PM saves over the network);
+    /// this wraps the call in a Task and writes the result file when
+    /// the save resolves. Driver waits for the result file as the
+    /// completion signal, not command-file disappearance.
     private func saveFocusedDoc(to path: String) {
-        let store = WorkspaceStore.shared
-        guard let doc = store.tabs.focused else {
-            writeJSONError(["error": "no focused doc"], to: path)
-            return
-        }
-        do {
-            try doc.save()
-            let payload: [String: Any] = [
-                "saved": true,
-                "url": doc.url?.path ?? "",
-                "sourceLength": (doc.source as NSString).length
-            ]
-            if let data = try? JSONSerialization.data(
-                withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
-                try? data.write(to: URL(fileURLWithPath: path))
+        try? Data().write(to: URL(fileURLWithPath: path))
+        Task { @MainActor in
+            let store = WorkspaceStore.shared
+            guard let doc = store.tabs.focused else {
+                Self.writeJSONErrorStatic(
+                    ["error": "no focused doc"], to: path)
+                return
             }
-        } catch {
-            writeJSONError([
-                "saved": false,
-                "error": "\(error)"
-            ], to: path)
+            do {
+                try await doc.save()
+                let payload: [String: Any] = [
+                    "saved": true,
+                    "url": doc.url?.path ?? "",
+                    "sourceLength": (doc.source as NSString).length
+                ]
+                if let data = try? JSONSerialization.data(
+                    withJSONObject: payload,
+                    options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: path))
+                }
+            } catch {
+                Self.writeJSONErrorStatic([
+                    "saved": false,
+                    "error": "\(error)"
+                ], to: path)
+            }
         }
     }
 
@@ -389,10 +405,16 @@ final class HarnessCommandPoller {
                 "displayPath": dpath
             ]
         }
+        let lastSeen = doc.connectorNode?.lastSeenUpdatedAt
+            .map { ISO8601DateFormatter.fractional.string(from: $0) }
+            ?? ""
         let payload: [String: Any] = [
             "url": doc.url?.path ?? "",
             "displayName": doc.displayName,
             "isReadOnly": doc.isReadOnly,
+            "isSaving": doc.isSaving,
+            "dirty": doc.dirty,
+            "lastSeenUpdatedAt": lastSeen,
             "origin": origin,
             "sourceLength": (doc.source as NSString).length,
             "externallyDeleted": doc.externallyDeleted
@@ -400,6 +422,47 @@ final class HarnessCommandPoller {
         if let data = try? JSONSerialization.data(
             withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    /// `connector_save_focused` (D19 phase 3) — call doc.save() on the
+    /// focused tab. Async; the driver waits for the result file to be
+    /// non-empty.
+    private func connectorSaveFocused(to path: String) {
+        try? Data().write(to: URL(fileURLWithPath: path))
+        Task { @MainActor in
+            let store = WorkspaceStore.shared
+            guard let doc = store.tabs.focused else {
+                Self.writeJSONErrorStatic(
+                    ["ok": false, "error": "no focused doc"], to: path)
+                return
+            }
+            let payload: [String: Any]
+            do {
+                try await doc.save()
+                payload = [
+                    "ok": true,
+                    "displayName": doc.displayName,
+                    "dirty": doc.dirty,
+                    "isReadOnly": doc.isReadOnly
+                ]
+            } catch let serr as EditorDocument.SaveError {
+                payload = [
+                    "ok": false,
+                    "error": "saveError",
+                    "message": serr.errorDescription ?? "\(serr)"
+                ]
+            } catch {
+                payload = [
+                    "ok": false,
+                    "error": "\(error)"
+                ]
+            }
+            if let data = try? JSONSerialization.data(
+                withJSONObject: payload,
+                options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: URL(fileURLWithPath: path))
+            }
         }
     }
 
@@ -691,25 +754,16 @@ final class HarnessCommandPoller {
             do {
                 let bytes = try await connector.openFile(node)
                 let text = String(data: bytes, encoding: .utf8) ?? ""
-                let fileID: Int = {
-                    let prefix = "\(connector.id):file:"
-                    if node.id.hasPrefix(prefix) {
-                        return Int(node.id.dropFirst(prefix.count)) ?? -1
-                    }
-                    return -1
-                }()
-                let origin: EditorDocument.Origin =
-                    (connector.id == "local")
-                        ? .local
-                        : .portableMind(connectorID: connector.id,
-                                        fileID: fileID,
-                                        displayPath: node.path)
                 await MainActor.run {
                     if connector.id == "local" {
                         _ = store.tabs.open(
                             fileURL: URL(fileURLWithPath: node.path))
                     } else {
-                        store.tabs.openReadOnly(content: text, origin: origin)
+                        // D19 phase 3 — openFromConnector derives the
+                        // origin from the node and computes
+                        // isReadOnly from connector.canWrite.
+                        store.tabs.openFromConnector(
+                            content: text, node: node)
                     }
                 }
                 Self.writeJSONErrorStatic(

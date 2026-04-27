@@ -64,21 +64,14 @@ struct WorkspaceView: View {
             _ = workspace.tabs.open(fileURL: URL(fileURLWithPath: node.path))
             return
         }
-        // PortableMind: read-only tab. Async fetch via the connector;
-        // open a read-only tab on completion. Failures present as a
-        // brief alert (network / auth issues are loud enough that we
-        // don't want them silently dropped).
+        // Connector-backed file. Async fetch; open via openFromConnector
+        // which computes read-only/editable from connector.canWrite.
+        // D19 phase 3 — PM files become editable here.
         Task {
             do {
                 let bytes = try await connector.openFile(node)
                 let text = String(data: bytes, encoding: .utf8) ?? ""
-                let fileID = Self.parseFileID(from: node.id, prefix: "\(connector.id):file:")
-                let origin = EditorDocument.Origin.portableMind(
-                    connectorID: connector.id,
-                    fileID: fileID ?? -1,
-                    displayPath: node.path
-                )
-                workspace.tabs.openReadOnly(content: text, origin: origin)
+                workspace.tabs.openFromConnector(content: text, node: node)
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Couldn't open \(node.name)"
@@ -86,11 +79,6 @@ struct WorkspaceView: View {
                 alert.runModal()
             }
         }
-    }
-
-    private static func parseFileID(from id: String, prefix: String) -> Int? {
-        guard id.hasPrefix(prefix) else { return nil }
-        return Int(id.dropFirst(prefix.count))
     }
 }
 

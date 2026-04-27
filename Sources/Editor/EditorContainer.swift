@@ -167,6 +167,16 @@ struct EditorContainer: NSViewRepresentable {
                 }
                 .store(in: &cancellables)
 
+            // D19 phase 3 — react to runtime read-only flips. PM tabs
+            // start with `isReadOnly` driven by `connector.canWrite`;
+            // a `writeForbidden` response on save flips it to true.
+            document.$isReadOnly
+                .removeDuplicates()
+                .sink { [weak self] readOnly in
+                    self?.textView?.isEditable = !readOnly
+                }
+                .store(in: &cancellables)
+
             // D9: apply pending caret focus requests (from CLI or URL
             // scheme) after the text view is seeded and laid out. We
             // don't dropFirst — @Published replays the current value on

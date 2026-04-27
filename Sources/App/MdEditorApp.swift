@@ -172,20 +172,38 @@ struct MdEditorApp: App {
 
     private func saveFocused() {
         guard let doc = workspace.tabs.focused else { return }
-        if doc.url == nil {
-            // Untitled — Save behaves like Save As.
+        // Untitled local doc — Save behaves like Save As. (PM tabs
+        // never reach here untitled; they always have an origin.)
+        if case .local = doc.origin, doc.url == nil {
             saveAsFocused()
             return
         }
-        do {
-            try doc.save()
-        } catch {
-            presentSaveError(error)
+        // D19 phase 3 — save() is async (PM saves over the network).
+        // Local saves complete synchronously inside the async function.
+        Task {
+            do {
+                try await doc.save()
+            } catch {
+                presentSaveError(error)
+            }
         }
     }
 
     private func saveAsFocused() {
         guard let doc = workspace.tabs.focused else { return }
+        // D19 phase 3 — Save As on a PM tab is not yet supported (Q4
+        // decision). The unified PM file-management deliverable
+        // (post-D20) handles rename / move / new-file.
+        if case .portableMind = doc.origin {
+            let alert = NSAlert()
+            alert.messageText = "Save As not yet supported"
+            alert.informativeText = EditorDocument.SaveError.unsupportedSaveAs
+                .errorDescription ?? ""
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
         let panel = NSSavePanel()
         var types: [UTType] = [.plainText]
         if let md = UTType(filenameExtension: "md") {

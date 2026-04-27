@@ -8,6 +8,17 @@
 
 import Foundation
 
+extension ISO8601DateFormatter {
+    /// Harmoniq returns `updated_at` like "2026-04-27T21:18:41.228Z" —
+    /// standard ISO8601 with fractional seconds. The default formatter
+    /// rejects fractions; this variant accepts them.
+    static let fractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+}
+
 enum JWTPayload {
     /// Returns `tenant_enterprise_identifier` from the payload of the
     /// given JWT, or nil if the token is malformed or doesn't carry

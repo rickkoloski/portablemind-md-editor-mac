@@ -61,9 +61,8 @@ private struct TabItemView: View {
                     .foregroundStyle(isFocused ? .primary : .secondary)
                     .frame(maxWidth: 160, alignment: .leading)
 
-                // D18 phase 5 — small pill for PortableMind read-only
-                // tabs. Single-color pill (not the AI fuchsia, which is
-                // reserved for tenant attribution + AI surfaces).
+                // D18 phase 5 / D19 phase 3 — mutually exclusive
+                // status indicators on the tab.
                 if document.isReadOnly {
                     Text("READ-ONLY")
                         .font(.system(size: 8, weight: .semibold))
@@ -75,8 +74,21 @@ private struct TabItemView: View {
                                 .stroke(Color.secondary.opacity(0.5),
                                         lineWidth: 0.5)
                         )
-                        .help("This document is read-only (PortableMind, D18)")
+                        .help("This document is read-only")
                         .accessibilityLabel("read-only document")
+                } else if document.isSaving {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .help("Saving…")
+                        .accessibilityLabel("saving")
+                } else if document.dirty {
+                    // Dirty dot — TextEdit/VS Code convention. Visible
+                    // at-a-glance signal that ⌘S has work to do.
+                    Text("●")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.secondary)
+                        .help("Unsaved changes")
+                        .accessibilityLabel("unsaved changes")
                 }
 
                 Button(action: onClose) {

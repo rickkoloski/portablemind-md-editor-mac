@@ -53,7 +53,9 @@ Active deliverables live in `docs/current_work/`:
 | `prompts/` | CC instructions — `dNN_name_prompt.md` |
 | `testing/` | Manual test plans per deliverable — `dNN_name_manual_test_plan.md`. First-class SDLC artifact; graduates to XCUITest while the manual plan stays. |
 | `stepwise_results/` | Completion records — `dNN_name_COMPLETE.md` |
-| `issues/` | Blocked items — `dNN_name_BLOCKED.md` |
+| `issues/` | Blocked items — `dNN_name_BLOCKED.md`, scoped to a specific deliverable |
+
+Cross-deliverable, non-blocking issues found during work go in `docs/issues_backlog.md` (single file, durable, IDs `i01`/`i02`/…). Append as discovered so the current task stays focused without losing the finding. Promote a backlog entry to `current_work/issues/dNN_*_BLOCKED.md` if it starts blocking an active deliverable.
 
 Completed work is chronicled in `docs/chronicle_by_concept/` (by domain) and `docs/chronicle_by_step/` (by time). Templates for every artifact type are in `docs/templates/`.
 
@@ -156,12 +158,14 @@ This project follows the SDLC framework from `~/src/ops/sdlc/`, using the **Nati
 - Follow the deliverable workflow (Spec → Planning → Implementation → Validation → Deploy → Result → Chronicle)
 - Use deliverable IDs (D1, D2, ...) for all new work
 - Create specs before implementing non-trivial features
+- Cut a `feature/d##-<short-name>` branch off `main` before starting Phase 1; keep all deliverable commits on that branch through the manual test plan + COMPLETE doc; merge to `main` when DOD is green. Spikes use `spike/d##-<short-name>`. Full rule + reasoning in `docs/engineering-standards_ref.md` §3.1.
 - Document completions in `docs/current_work/stepwise_results/`
 - Ask before deviating from established process
 
 **Do not:**
 - Skip the spec phase for significant work
 - Implement features without deliverable IDs
+- Commit deliverable work directly to `main`
 - Deviate from the process without explicit approval
 - Declare a mutation verified without a persistence round-trip (Persistence Rule; see `~/src/ops/sdlc/disciplines/testing.md`)
 

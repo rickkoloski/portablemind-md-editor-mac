@@ -98,7 +98,24 @@ Decisions that keep direct-download distribution (Developer ID + notarization + 
 
 ---
 
-## Section 3 — (Reserved for future standards)
+## Section 3 — Source control & deliverable boundaries
+
+### 3.1 Deliverable work happens on a feature branch
+
+- **Rule:** Every deliverable is implemented on a `feature/d##-<short-name>` branch cut from `main`. All commits for the deliverable land on that branch. When the deliverable's DOD is GREEN and the manual test plan is walked, the branch merges (PR or fast-forward) into `main`. Tags (e.g. `v0.4`) are placed on `main` after merge — never on the feature branch.
+- **In practice:**
+  - Cut the branch as the first action when starting a deliverable's Phase 1: `git checkout -b feature/d18-pm-connector` (mirror the deliverable ID; keep names short, grep-friendly, lowercase-with-hyphens).
+  - One deliverable per branch. A multi-phase deliverable's per-phase commits all live on the same branch.
+  - Stay on the branch for the full deliverable lifecycle (spec edits, plan edits, implementation, manual test plan walk, COMPLETE doc, roadmap update). The roadmap update commit is the last one before the merge.
+  - Spikes use `spike/d##-<short-name>` instead — signals experimental, possibly-discardable nature.
+  - Hotfixes (< 1 day, no spec) use `fix/<short-name>` off `main`. Anything bigger graduates to a deliverable.
+- **Reason:** Keeps `main` reflective of shipped state; keeps the per-deliverable diff coherent and reviewable; matches what `~/src/apps/harmoniq/harmoniq-frontend` and `model_api` already do (`feature/<name>` off their respective integration branches); makes it cheap to abandon or rebase a deliverable that gets superseded mid-flight (the D8/D8.1/D12/D13 ↔ D17 retirement would have been less surgical with everything tangled on `main`).
+- **Consequence of violation:** Deliverable boundaries are lost in `git log`; abandoning a partial deliverable requires per-commit cherry-picking; spec-vs-implementation diffs for review become multi-commit needle hunts; parallel deliverables can't safely be developed without rebasing nightmares.
+- **Surfaced in:** D18 kickoff (2026-04-27). Through D17 work landed directly on `main` because the per-deliverable boundary was implicit in commit-message convention; D18 introduces the first externally-shippable PortableMind-aware code path, raising the cost of a tangled `main`.
+
+---
+
+## Section 4 — (Reserved for future standards)
 
 Additional sections to be added when the needs surface. Candidates likely to emerge:
 - Localization / string-tables discipline (Principle 2 requires shared SDLC artifacts produce per-OS string tables).
@@ -118,3 +135,4 @@ Add sections by number; keep each section self-contained with the rule + reason 
 - **2026-04-22 (D5 close)** — §2.1 refined: the required UITest query shape is `descendants(matching:.any)["id"].firstMatch` (with the `.firstMatch` resolver) because SwiftUI's `Button { Label(…) }` produces nested AX nodes that share the outer identifier. Surfaced during the D5 MutationToolbarTests first run.
 - **2026-04-23 (D6 kickoff)** — §2.4 added: external command surface (CLI, URL scheme, future MCP) declared once in `Sources/CommandSurface/`. Parallels §2.3's declarative-table rule for keyboard bindings. Preventive — stops external-integration debt from accumulating before MCP wrapping becomes expensive.
 - **2026-04-26 (D17 close)** — §2.2 inverted: the editor moved from TextKit 2 to TextKit 1 in the D17 migration. Rule was previously "never touch `.layoutManager`"; is now "use `.layoutManager` as the supported path; do not opt back into TK2." Reason and consequence updated accordingly.
+- **2026-04-27 (D18 kickoff)** — §3.1 added: deliverable work happens on a `feature/d##-<short-name>` branch off `main`; merges back when DOD + manual test plan are green. Surfaced when D18's connector + first PortableMind-aware code raised the cost of a tangled `main`. Mirrors the harmoniq repos' `feature/<name>` convention.

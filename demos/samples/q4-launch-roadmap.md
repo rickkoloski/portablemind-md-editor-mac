@@ -8,27 +8,14 @@
 | --- | --- | --- | --- |
 | Brand identity refresh | Design | ✅ Done | Approved 2026-09-14 |
 | Landing page copy | Marketing | ✅ Done | Live on staging |
-| API endpoint inventory | Engineering | ✅ Done | Inventory locked 2026-09-15 |
-| Onboarding flow wireframes | Design | ✅ Done | Hi-fi delivered 2026-09-15 |
+| API endpoint inventory | Engineering | 🟡 In progress | Final review with backend |
+| Onboarding flow wireframes | Design | 🟡 In progress | Hi-fi pass underway |
 | QA test plan draft | QA | ⏳ Pending | Needs API contract |
 | Launch announcement copy | Marketing | ⏳ Pending | Draft after pricing locks |
 | Pricing decision | Leadership | 🔴 Blocked | Pending exec review |
 | Beta feedback synthesis | Product | ⏳ Pending |  |
 
-
-
 ## Recent activity
 
-- 2026-09-15: API endpoint inventory locked; onboarding wireframes hi-fi delivered.
 - 2026-09-14: brand refresh approved; logo + colors locked.
 - 2026-09-12: landing page copy live on staging.
-
-## Open questions
-
-_(none)_
-
-## Decision log
-
-| Date | Decision | Decided by |
-| --- | --- | --- |
-| 2026-09-16 | QA contract artifact: generate an OpenAPI 3.1 spec from the locked endpoint inventory. QA authors tests against the spec; the spec also serves as customer-facing API docs at launch. Single source of truth from inventory → tests → docs. | RAK |

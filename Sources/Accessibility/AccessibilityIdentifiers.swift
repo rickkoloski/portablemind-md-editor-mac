@@ -47,11 +47,11 @@ enum AccessibilityIdentifiers {
     static let fileMenuSave = "md-editor.menu.file.save"
     static let fileMenuSaveAs = "md-editor.menu.file.save-as"
 
-    /// Per-row and per-tab identifiers use the URL path (for tree rows)
-    /// or document UUID (for tabs) so tests can target a specific row
-    /// or tab reliably.
-    static func folderTreeRow(url: URL) -> String {
-        "md-editor.sidebar.folder-tree.row:\(url.path)"
+    /// Per-row and per-tab identifiers use the connector-qualified node
+    /// id (for tree rows) or document UUID (for tabs) so tests can
+    /// target a specific row or tab reliably.
+    static func folderTreeRow(id: String) -> String {
+        "md-editor.sidebar.folder-tree.row:\(id)"
     }
 
     static func tabButton(documentID: UUID) -> String {

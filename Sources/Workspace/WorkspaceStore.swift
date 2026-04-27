@@ -10,7 +10,10 @@ final class WorkspaceStore: ObservableObject {
     static let shared = WorkspaceStore()
 
     @Published var rootURL: URL?
-    @Published var rootNode: FolderNode?
+    @Published var rootNode: ConnectorNode?
+    /// D18 phase 1 — the active connectors. For now: at most one
+    /// LocalConnector. Phase 3 adds PortableMindConnector as a peer.
+    @Published private(set) var connectors: [any Connector] = []
 
     let tabs = TabStore()
 
@@ -64,7 +67,13 @@ final class WorkspaceStore: ObservableObject {
         bookmarkAccessStop = stopAccessing
 
         rootURL = url
-        rootNode = FolderNode(url: url, name: url.lastPathComponent, isDirectory: true)
+
+        // Phase 1: a single LocalConnector backs the workspace tree.
+        // Phase 3 will append a PortableMindConnector here when the
+        // user has configured one.
+        let local = LocalConnector(rootURL: url)
+        connectors = [local]
+        rootNode = local.rootNode()
 
         treeWatcher = FolderTreeWatcher(url: url) { [weak self] in
             Task { @MainActor in self?.refreshTreeRoot() }
@@ -83,8 +92,13 @@ final class WorkspaceStore: ObservableObject {
     /// folder watcher on external changes.
     func refreshTreeRoot() {
         guard let url = rootURL else { return }
-        // Assigning a fresh FolderNode (same URL) nudges SwiftUI.
-        rootNode = FolderNode(url: url, name: url.lastPathComponent, isDirectory: true)
+        // LocalConnector's rootURL is immutable; constructing a fresh
+        // instance (with the same URL) is the cheap way to invalidate
+        // child caches downstream and nudge SwiftUI's OutlineGroup to
+        // re-query.
+        let local = LocalConnector(rootURL: url)
+        connectors = [local]
+        rootNode = local.rootNode()
     }
 
     // MARK: - Tab persistence

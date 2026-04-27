@@ -19,8 +19,8 @@ struct WorkspaceView: View {
     @ViewBuilder
     private var sidebar: some View {
         if let rootNode = workspace.rootNode {
-            FolderTreeView(rootNode: rootNode) { fileURL in
-                _ = workspace.tabs.open(fileURL: fileURL)
+            FolderTreeView(rootNode: rootNode) { node in
+                _ = workspace.tabs.open(fileURL: URL(fileURLWithPath: node.path))
             }
         } else {
             VStack(spacing: 8) {

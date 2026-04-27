@@ -50,3 +50,27 @@ For the D18 Decision log, the "Decision" column's natural text width is many tho
 **Discovered during:** D18 spec authoring; CD reading the Decision log table in PM Markdown.
 
 **Not blocking D18.** D18 is the PM connector + sidebar tree; no table rendering changes. File for later — likely a focused deliverable in the post-D19 window.
+
+---
+
+## i03 — UITest suite has 3 failures from before D18 work began
+
+**Date:** 2026-04-27
+**Area:** testing (XCUITest)
+**Status:** Open
+
+`xcodebuild test` reports 3 failing test cases on `main` (and on `feature/d18-pm-connector` — the failures predate the branch):
+
+- `LaunchSmokeTests.testAppLaunchesAndMainEditorIsAccessible` — "main editor view not found by accessibility identifier"
+- `MutationKeyboardTests.testBoldMutationWrapsSelection` — "main editor not reachable by identifier"
+- `MutationToolbarTests.testBoldButtonWrapsSelection` — "main editor not reachable by identifier"
+
+All three are looking for `md-editor.main-editor` accessibility identifier on launch, but the app at launch shows the empty-editor placeholder (no document open) — there's no main editor view to find. The tests likely worked when the launch UX always mounted an editor; the D6 workspace introduction added the empty-editor placeholder, which routes around the editor view.
+
+**Verified pre-existing:** stashing the Phase 1 refactor and running tests on `main` reproduces the same three failures. Phase 1 does not introduce new regressions in this suite.
+
+**Fix path (sketch):** the tests need a setup step that opens a folder and a file before asserting on the main editor view, OR a shadow accessibility identifier on the empty-editor placeholder so the test can assert the launch-state directly.
+
+**Discovered during:** D18 phase 1 manual smoke (running the existing UITests as a regression sweep).
+
+**Not blocking D18.** Phase 1 doesn't make these worse. Address as a focused testing deliverable separate from D18.

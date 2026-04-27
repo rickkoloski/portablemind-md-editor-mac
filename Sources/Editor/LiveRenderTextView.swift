@@ -23,16 +23,33 @@ final class LiveRenderTextView: NSTextView {
     /// text-storage chain. Use this everywhere instead of relying on
     /// `NSTextView`'s default initializer, which on macOS 12+ may
     /// pick up `NSTextLayoutManager` (TK2).
+    ///
+    /// Resizing setup mirrors what NSTextView's own convenience init
+    /// would have done — without it, the documentView stays at its
+    /// initial frame size and the scroll view has nothing to scroll.
     convenience init() {
+        let initialFrame = NSRect(x: 0, y: 0,
+                                  width: 600,
+                                  height: CGFloat.greatestFiniteMagnitude)
         let storage = NSTextStorage()
         let layoutManager = NSLayoutManager()
         storage.addLayoutManager(layoutManager)
         let container = NSTextContainer(size: NSSize(
-            width: 0,
+            width: initialFrame.width,
             height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
+        container.heightTracksTextView = false
         layoutManager.addTextContainer(container)
-        self.init(frame: .zero, textContainer: container)
+        self.init(frame: initialFrame, textContainer: container)
+        // Configure as scroll-view documentView: width tracks the
+        // enclosing clip view, height grows with content. Without
+        // these, the text view is a fixed-frame box and the user
+        // can't scroll past the initial frame's content.
+        self.minSize = NSSize(width: 0, height: 0)
+        self.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                              height: CGFloat.greatestFiniteMagnitude)
+        self.isVerticallyResizable = true
+        self.isHorizontallyResizable = false
         // Runtime trip wire: confirm we did not accidentally end up
         // on TK2. If this assertion fires the construction chain
         // above is wrong.

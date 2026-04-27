@@ -118,8 +118,51 @@ struct MdEditorApp: App {
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                     .accessibilityIdentifier(AccessibilityIdentifiers.fileMenuSaveAs)
             }
+#if DEBUG
+            // D18 phase 2: dev-only "Set PortableMind Token…" menu
+            // entry. Replaced by D19's connection-management UX once
+            // sign-in is real.
+            CommandMenu("Debug") {
+                Button("Set PortableMind Token…") { setPortableMindToken() }
+                Button("Clear PortableMind Token") { clearPortableMindToken() }
+            }
+#endif
         }
     }
+
+#if DEBUG
+    private func setPortableMindToken() {
+        let alert = NSAlert()
+        alert.messageText = "Set PortableMind Token"
+        alert.informativeText = "Paste the bearer token. Lives in the macOS Keychain under service ai.portablemind.md-editor.harmoniq-token."
+        alert.alertStyle = .informational
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        if let existing = try? KeychainTokenStore.shared.load() {
+            field.stringValue = existing ?? ""
+        }
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let token = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return }
+        do {
+            try KeychainTokenStore.shared.save(token: token)
+        } catch {
+            let err = NSAlert(error: error)
+            err.runModal()
+        }
+    }
+
+    private func clearPortableMindToken() {
+        do {
+            try KeychainTokenStore.shared.clear()
+        } catch {
+            let err = NSAlert(error: error)
+            err.runModal()
+        }
+    }
+#endif
 
     private func saveFocused() {
         guard let doc = workspace.tabs.focused else { return }

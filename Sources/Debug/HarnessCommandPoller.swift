@@ -201,6 +201,20 @@ final class HarnessCommandPoller {
         // D17 — overlay/modal/cell-table actions retired with the TK2
         // fragment + cell-edit-overlay code (phases 3+4). Cell editing
         // is now in-place via stock NSTextView + NSTextTable.
+        // D18 phase 2 — PortableMind API client + Keychain token store.
+        case "pm_token_set":
+            pmTokenSet(token: params["token"] as? String,
+                       resultPath: params["path"] as? String
+                        ?? "/tmp/mdeditor-pm-token-set.json")
+        case "pm_token_dump":
+            pmTokenDump(to: params["path"] as? String
+                ?? "/tmp/mdeditor-pm-token.json")
+        case "pm_api_smoke":
+            // ASYNC: kicks off Task.detached, returns immediately.
+            // Driver waits for the result file to be non-empty rather
+            // than for command-file disappearance.
+            pmApiSmoke(to: params["path"] as? String
+                ?? "/tmp/mdeditor-pm-api.json")
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -383,6 +397,92 @@ final class HarnessCommandPoller {
             withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: path))
             NSLog("[TEST-HARNESS] window_info → \(path)")
+        }
+    }
+
+    // MARK: - D18 phase 2: PortableMind API client + Keychain
+
+    /// `pm_token_set` → write a bearer token to the Keychain. Always
+    /// emits a small JSON envelope to `resultPath` so the driver can
+    /// distinguish "saved" from "save failed".
+    private func pmTokenSet(token: String?, resultPath: String) {
+        guard let token, !token.isEmpty else {
+            writeJSONError(["saved": false, "error": "missing or empty token"],
+                           to: resultPath)
+            return
+        }
+        do {
+            try KeychainTokenStore.shared.save(token: token)
+            writeJSONError(["saved": true, "length": token.count],
+                           to: resultPath)
+        } catch {
+            writeJSONError(["saved": false, "error": "\(error)"],
+                           to: resultPath)
+        }
+    }
+
+    /// `pm_token_dump` → emit `{present: bool, length: Int}`. Never
+    /// returns the token itself.
+    private func pmTokenDump(to path: String) {
+        do {
+            if let token = try KeychainTokenStore.shared.load(), !token.isEmpty {
+                writeJSONError(["present": true, "length": token.count],
+                               to: path)
+            } else {
+                writeJSONError(["present": false, "length": 0], to: path)
+            }
+        } catch {
+            writeJSONError(["present": false, "error": "\(error)"], to: path)
+        }
+    }
+
+    /// `pm_api_smoke` → calls `listDirectories(parentPath: nil)` and
+    /// writes the result to `path`. Async — kicks off a detached Task,
+    /// returns immediately. Driver waits for the result file to be
+    /// non-empty (rather than for the command file to disappear).
+    private func pmApiSmoke(to path: String) {
+        // Truncate the result path to zero length so the driver's
+        // "wait for non-empty" check is reliable.
+        try? Data().write(to: URL(fileURLWithPath: path))
+        Task.detached {
+            let client = PortableMindAPIClient()
+            let payload: [String: Any]
+            do {
+                let dirs = try await client.listDirectories(parentPath: nil)
+                payload = [
+                    "ok": true,
+                    "count": dirs.count,
+                    "directories": dirs.map { d in
+                        [
+                            "id": d.id,
+                            "name": d.name,
+                            "path": d.path,
+                            "subdirectory_count": d.subdirectory_count ?? 0,
+                            "file_count": d.file_count ?? 0,
+                            "tenant_id": d.tenant_id,
+                            "tenant_enterprise_identifier":
+                                d.tenant_enterprise_identifier ?? "",
+                            "tenant_name": d.tenant_name ?? ""
+                        ] as [String: Any]
+                    }
+                ]
+            } catch ConnectorError.unauthenticated {
+                payload = ["ok": false, "error": "unauthenticated"]
+            } catch ConnectorError.network(let underlying) {
+                payload = ["ok": false, "error": "network: \(underlying)"]
+            } catch ConnectorError.server(let status, let message) {
+                payload = ["ok": false,
+                           "error": "server",
+                           "status": status,
+                           "message": message ?? ""]
+            } catch {
+                payload = ["ok": false, "error": "\(error)"]
+            }
+            if let data = try? JSONSerialization.data(
+                withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: URL(fileURLWithPath: path))
+                NSLog("[TEST-HARNESS] pm_api_smoke → \(path) (\(data.count) bytes)")
+            }
         }
     }
 }

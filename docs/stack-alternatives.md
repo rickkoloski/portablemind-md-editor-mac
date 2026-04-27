@@ -68,9 +68,29 @@ This is the deep one. The content area — the thing the user actually types int
 | WKWebView + Lexical | Low-medium | Proven; Meta's framework | Low | Same |
 | Custom CoreText renderer (Zed-style) | Highest | Feasible but enormous | Very high | Transfers as a design philosophy, not code |
 
-### Recommendation: TextKit 2
+### Recommendation: TextKit 1
 
-> **Validated by D1 (2026-04-22).** The TextKit 2 feasibility spike produced a green recommendation. See `docs/current_work/stepwise_results/d01_textkit2_live_render_spike_COMPLETE.md`. The attribute-based collapse/reveal mechanism works; all behaviors required by the vision are reachable; the five findings surfaced are renderer-level bugs and design gaps, not TextKit 2 limitations. No pivot needed.
+> **Pivoted from TextKit 2 to TextKit 1 in D17 (2026-04-26).**
+>
+> D1 validated TK2 for the live-render core. D8–D13 built table rendering on TK2 via a custom `NSTextLayoutFragment` subclass + layout-manager delegate. Through D15.1, that custom-fragment + lazy-layout combination produced a recurring class of bugs in real-user dogfooding (post-scroll table corruption, blank gaps, click-to-stale-position). Each fix landed; another shape of the same bug appeared.
+>
+> Apple at WWDC22 (session 10090) acknowledges TK2 has no `NSTextTable` support; tables trip "compatibility-mode" fallback to TK1. Apple's own TextEdit silently demotes to TK1 when a table is inserted. Marcin Krzyżanowski (author of STTextView, the most-used third-party TK2 component) wrote in *TextKit 2: The Promised Land* (Aug 2025): "TextKit 2 is not yet ready for editing documents." We're not the only ones who hit this wall.
+>
+> D16 spike (2026-04-26, `spikes/d16_textkit1_tables/`) validated that native `NSTextTable` / `NSTextTableBlock` on TK1 resolves all four canonical scenarios that defeated TK2 — render below initial viewport, click-to-caret, type-without-jump, wrapped-cell click — using stock `NSLayoutManager` APIs and zero custom-layout code. D17 migrated the editor: `NSTextStorage → NSLayoutManager → NSTextContainer → NSTextView` chain, tables emitted as cell-paragraph attributed strings with `NSParagraphStyle.textBlocks`, ~3,200 lines of custom-fragment + cell-overlay machinery retired.
+>
+> D1's original validation of TK2 still stands for the live-render core. The pivot is specifically about tables — they're a structured-content type TK2 doesn't support, and Apple's path for that case is TK1.
+
+**Why TextKit 1 (post-pivot)**:
+
+- Native `NSTextTable` + `NSTextTableBlock` support — battle-tested since Mac OS X 10.0; what Apple uses in TextEdit, Notes, Pages.
+- Stock `NSLayoutManager.glyphIndex(for:)` resolves clicks correctly through table cells, including wrapped cell content. No `cellLocalCaretIndex` math needed.
+- No lazy-layout asymmetry: layout is computed for the full document by the time the first paint happens. Scroll into any region without staleness.
+- No `scrollRangeToVisible` overshoot during edits — TK1 only auto-scrolls when the caret moves offscreen, which is the desired behavior.
+- All non-table content rendering (headings, lists, inline formatting, code blocks) works identically to TK2 in our case — they're paragraph-style attributes either way.
+
+**Trade-off accepted**: TK1's API surface is older. Some types (`NSTextBlock.ValueType.absoluteValueType`, etc.) carry "older-style" enum names that look deprecated but aren't. We don't preemptively port to "modernized" alternatives because the alternatives don't exist for TK1 — they exist for TK2 which doesn't support tables. The trade-off has Apple's own apps as precedent.
+
+### Historical: TextKit 2 (D1–D15.1)
 
 **Why.** TextKit 2 was specifically rebuilt to make live-rendering editors like this tractable on Apple platforms — exactly the job we need done. It gives us:
 

@@ -89,12 +89,12 @@ Decisions that keep direct-download distribution (Developer ID + notarization + 
 - **Enforcement (current):** `rg --type swift 'URL\\(string: "md-editor://"' Sources/` must show only `CommandSurface` hits once we ship the URL scheme. Same pattern future-proofs MCP: any tool handler that isn't in CommandSurface is a violation.
 - **Surfaced in:** D6 (first external surface: CLI + URL scheme for file-tree/tab operations; CD called out MCP-as-future-adapter explicitly).
 
-### 2.2 Never access `NSTextView.layoutManager` — TextKit 2 only
-- **Rule:** Code that touches `NSTextView` uses `textLayoutManager` exclusively. The property `layoutManager` is never referenced, not even in diagnostics, not even in comments-with-real-code.
-- **Reason:** D1 finding #1 — accessing `.layoutManager` lazy-creates a TextKit 1 layout manager and silently flips the view's code path. Our entire text-rendering architecture depends on being in the TextKit 2 path.
-- **Consequence of violation:** Silent fallback to TextKit 1 with mysterious rendering regressions; attribute-based collapse behavior stops working.
-- **Enforcement (future):** add a SwiftLint rule or pre-commit grep to fail on any occurrence of `.layoutManager` outside this standards doc.
-- **Surfaced in:** D1.
+### 2.2 The text view is on TextKit 1 — `layoutManager` is the path; do not opt back into TextKit 2
+- **Rule (D17, 2026-04-26 onwards):** Code that touches `NSTextView` uses `layoutManager` (`NSLayoutManager`). Do NOT reach for `textLayoutManager` (`NSTextLayoutManager`) or use `NSTextView(usesTextLayoutManager: true)`. `LiveRenderTextView`'s designated init builds the explicit storage chain `NSTextStorage → NSLayoutManager → NSTextContainer → NSTextView(frame:textContainer:)` and asserts `textLayoutManager == nil` as a runtime trip wire.
+- **Reason:** D1 chose TK2; D17 pivoted to TK1 after D8–D15.1 demonstrated that TK2's lazy-layout-with-custom-fragment-height model doesn't sustain table editing in real use. See `docs/stack-alternatives.md` Axis 2 for the full reasoning and citations (WWDC22 session 10090, Krzyżanowski's *TextKit 2: The Promised Land*, Apple TextEdit's automatic compatibility fallback). The original prohibition (don't accidentally fall into TK1) was meaningful when we were on TK2; it's now inverted — we are deliberately on TK1, and `textLayoutManager` is what would cost us the table support.
+- **Consequence of violation:** Silent re-introduction of the class of bugs D17 retired (post-scroll table rendering corruption, blank gaps, click-to-stale-position). The architecture decision was non-trivial; flipping back undoes a substantial refactor.
+- **Enforcement (future):** add a SwiftLint rule or pre-commit grep to fail on any occurrence of `NSTextLayoutManager` or `usesTextLayoutManager: true` outside this standards doc and the spike directory.
+- **Surfaced in:** D1 (TK2 chosen), D17 (pivoted to TK1).
 
 ---
 
@@ -117,3 +117,4 @@ Add sections by number; keep each section self-contained with the rule + reason 
 - **2026-04-22 (D4 kickoff)** — §2.3 added (keyboard bindings as a declarative table) to preserve cheap externalization to a data file for later cross-OS sharing and user preferences. Rule is preventive: stops debt from accumulating before it becomes hard to undo.
 - **2026-04-22 (D5 close)** — §2.1 refined: the required UITest query shape is `descendants(matching:.any)["id"].firstMatch` (with the `.firstMatch` resolver) because SwiftUI's `Button { Label(…) }` produces nested AX nodes that share the outer identifier. Surfaced during the D5 MutationToolbarTests first run.
 - **2026-04-23 (D6 kickoff)** — §2.4 added: external command surface (CLI, URL scheme, future MCP) declared once in `Sources/CommandSurface/`. Parallels §2.3's declarative-table rule for keyboard bindings. Preventive — stops external-integration debt from accumulating before MCP wrapping becomes expensive.
+- **2026-04-26 (D17 close)** — §2.2 inverted: the editor moved from TextKit 2 to TextKit 1 in the D17 migration. Rule was previously "never touch `.layoutManager`"; is now "use `.layoutManager` as the supported path; do not opt back into TK2." Reason and consequence updated accordingly.

@@ -1,4 +1,4 @@
-# md-editor-mac Roadmap (informal)
+# md-editor-mac Roadmap (informal) 
 
 **Type:** Reference — informal planning sketch, not a commitment.
 **Status:** Living; extend at the start of each deliverable cycle. Concrete commitments live in `docs/current_work/specs/dNN_*_spec.md` as they get drafted.
@@ -10,25 +10,28 @@ Rough ordering of planned deliverables so that current work has context for what
 ## Current ordering (as of 2026-04-24)
 
 | D# | Deliverable | Status |
-|---|---|---|
+| --- | --- | --- |
 | D1 | TextKit 2 live-render feasibility spike | ✅ Complete — GREEN recommendation |
 | D2 | Project scaffolding — promote spike to real project | ✅ Complete — 2026-04-22 |
 | D4 | Source-mutation primitives + keyboard bindings (bold / italic / inline code / link / heading 0–6 / bullet / numbered). No UI yet. | ✅ Complete — 2026-04-22 |
-| D5 | Formatting toolbar — visible buttons wired to D4's primitives + View → Show/Hide Toolbar | ✅ Complete — 2026-04-22 |
+| D5 | Formatting toolbar — visible buttons wired to D4’s primitives + View → Show/Hide Toolbar | ✅ Complete — 2026-04-22 |
 | D6 | Workspace foundation — folder tree sidebar, tabs, multi-file external-edit, CommandSurface + URL scheme + CLI wrapper | ✅ Complete — 2026-04-23 |
-| D3 | Packaging — Sparkle + DMG + Developer ID + notarization | **Deferred** — gates on Apple Developer Program renewal (per `memory/md_editor_apple_developer_state.md`) |
-| D8 | GFM table rendering — NSTextLayoutFragment grid | ✅ Complete — 2026-04-23 (grid rendering; D8.1 ships reveal-on-caret) |
-| D8.1 | Table reveal — source mode on caret-in-range | ✅ Complete — 2026-04-24; **single-click trigger superseded by D12** (mechanism retained for double-click path) |
+| D3 | Packaging — Sparkle + DMG + Developer ID + notarization | Deferred — gates on Apple Developer Program renewal (per `memory/md_editor_apple_developer_state.md`) |
+| D8 | GFM table rendering — NSTextLayoutFragment grid | ✅ Shipped 2026-04-23 (TK2 vintage); superseded by D17 — implementation retired in favor of native NSTextTable on TK1 |
+| D8.1 | Table reveal — source mode on caret-in-range | ✅ Shipped 2026-04-24; superseded by D17 — feature dropped per spec § 5; in-place TK1 cell editing replaces the source-reveal mechanism |
 | D9 | Scroll-to-line on open — CLI suffix `:42` + URL `&line=N&column=M` | ✅ Complete — 2026-04-23 |
 | D10 | Toggleable line numbers — View menu + `Cmd+Option+L` | ✅ Complete — 2026-04-23 |
 | D11 | CLI control of line numbers — `set-view` command + `--line-numbers=on\|off` flag (explicit-state discipline) | ✅ Complete — 2026-04-23 |
-| D12 | Per-cell table editing — single-click caret in cell (primary); double-click drops to whole-table source (secondary). Fixes D8.1 caret position + size. | ✅ Complete — 2026-04-25; **wrapped-cell limitation handed off to D13** |
-| D13 | Cell-edit overlay — in-place reusable overlay text view for cell editing (Numbers/Excel pattern). Solves wrapped-cell caret + click-to-visual-line-2 inaccessible in D12. Adds modal popout (right-click "Edit Cell in Popout…") as parallel path + future inline-content surface. | ✅ Complete — 2026-04-26 |
+| D12 | Per-cell table editing — single-click caret in cell (primary); double-click drops to whole-table source (secondary). Fixes D8.1 caret position + size. | ✅ Shipped 2026-04-25; superseded by D17 — TK1 NSTextTable handles per-cell editing natively via stock NSTextView |
+| D13 | Cell-edit overlay — in-place reusable overlay text view for cell editing (Numbers/Excel pattern). Solves wrapped-cell caret + click-to-visual-line-2 inaccessible in D12. Adds modal popout (right-click “Edit Cell in Popout…”) as parallel path + future inline-content surface. | ✅ Shipped 2026-04-26; superseded by D17 — overlay machinery retired; in-place editing replaces it. Modal popout dropped per D17 spec § 5. |
 | D14 | Save / Save As — `EditorDocument.save()` + `saveAs(to:)` with atomic UTF-8 writes + watcher stop/restart guard; ⌘S / ⌘⇧S menu items; untitled-Save falls through to Save As panel. | ✅ Complete — 2026-04-26 |
 | D15 | Scroll-jump-on-typing fix — `renderCurrentText` save+restore scrollY around the full-storage re-attribute. CD-discovered during D13 manual testing. | ⚠️ Symptom-patch shipped 2026-04-26; superseded by D15.1 root-cause fix |
-| D15.1 | Scroll-jump root-cause investigation — covered the harness-reproducible scenarios (keyDown scroll guard, full-doc `ensureLayout` in `renderCurrentText`, post-scroll fragment re-resolution in `mouseDown`). Surfaced architectural friction: TK2 lazy-layout-with-custom-fragment-heights is the recurring cause; multiple targeted fixes still leave visual bugs in real-user dogfooding. **Decision: stop fighting TK2 for tables; spike TK1.** Artifacts that survive: debug HUD, harness regression scaffolding, inspect tooling. | ⚠️ Partial — 2026-04-26; superseded by D16 |
-| D16 | TextKit 1 spike — validate that native `NSTextTable` / `NSTextTableBlock` (the API Apple's TextEdit falls back to) resolves the table rendering + click + scroll bugs we couldn't tame in TK2. Bounded spike at `spikes/d16_textkit1_tables/`; if GREEN across the four canonical scenarios, plan deliberate migration. | 🔵 Spike — TBD |
-| **D7+** | **PortableMind integration** — connected mode, Submit → status transition, document↔entity association, tenant sign-in, MCP adapter as a second caller of CommandSurface | Now unblocked by D6's workspace + CommandSurface primitives |
+| D15.1 | Scroll-jump root-cause investigation — covered the harness-reproducible scenarios (keyDown scroll guard, full-doc `ensureLayout` in `renderCurrentText`, post-scroll fragment re-resolution in `mouseDown`). Surfaced architectural friction: TK2 lazy-layout-with-custom-fragment-heights is the recurring cause; multiple targeted fixes still leave visual bugs in real-user dogfooding. Decision: stop fighting TK2 for tables; spike TK1. Artifacts that survive: debug HUD, harness regression scaffolding, inspect tooling. | ⚠️ Partial — 2026-04-26; superseded by D16 |
+| D16 | TextKit 1 spike — validate that native `NSTextTable` / `NSTextTableBlock` (the API Apple’s TextEdit falls back to) resolves the table rendering + click + scroll bugs we couldn’t tame in TK2. Bounded spike at `spikes/d16_textkit1_tables/`; if GREEN across the four canonical scenarios, plan deliberate migration. | ✅ Complete — 2026-04-26; all four scenarios GREEN |
+| D17 | TextKit 1 migration — port the editor’s text view from TK2’s custom-fragment table system to TK1 native `NSTextTable` + `NSTextTableBlock`. Retires D8 (table render), D8.1 (reveal), D12 (per-cell), D13 (overlay + modal), and the D15.1 scroll-suppression workarounds — ~3,200 lines of custom-layout machinery deleted. | ✅ Complete — 2026-04-26 |
+| D7+ | PortableMind integration — connected mode, Submit → status transition, document↔entity association, tenant sign-in, MCP adapter as a second caller of CommandSurface | Now unblocked by D6’s workspace + CommandSurface primitives |
+
+
 
 ## Candidates (unscheduled)
 

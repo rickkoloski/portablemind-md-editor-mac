@@ -157,6 +157,15 @@ final class ConnectorTreeViewModel: ObservableObject {
                 return "Server \(status): \(message ?? "")"
             case .unsupported(let msg):
                 return "Unsupported: \(msg)"
+            // D19 — these are save-path errors; the children loader
+            // shouldn't normally hit them, but exhaustiveness requires
+            // a branch.
+            case .storageQuotaExceeded(let msg):
+                return "Storage quota exceeded: \(msg)"
+            case .writeForbidden(let msg):
+                return "Write forbidden: \(msg)"
+            case .conflictDetected:
+                return "Conflict: file changed remotely"
             }
         }
         return error.localizedDescription

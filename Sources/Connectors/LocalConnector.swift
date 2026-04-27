@@ -89,6 +89,40 @@ final class LocalConnector: Connector {
         }
     }
 
+    /// Local files are always writable from the connector's POV; OS-
+    /// level permission denial would surface as a `ConnectorError.network`
+    /// from the write call itself.
+    func canWrite(_ node: ConnectorNode) -> Bool {
+        node.kind == .file
+    }
+
+    /// Atomic UTF-8 write — mirrors D14 `EditorDocument.writeAndRewatch`.
+    /// Local has no remote-mtime concept, so the conflict-detection
+    /// `force` flag is ignored (no GET-before-PATCH equivalent on disk;
+    /// D14 didn't try). Returns the same node back; `lastSeenUpdatedAt`
+    /// stays nil for Local because there's no canonical remote time
+    /// to track.
+    ///
+    /// NOTE on the watcher: D14's `EditorDocument.writeAndRewatch` stops
+    /// the watcher around the write to suppress the file-event echo.
+    /// That guard belongs at the EditorDocument layer (it owns the
+    /// watcher), not here. The connector just writes; the caller wraps.
+    func saveFile(_ node: ConnectorNode,
+                  bytes: Data,
+                  force: Bool) async throws -> ConnectorNode {
+        guard node.kind == .file else {
+            throw ConnectorError.unsupported(
+                "saveFile called on directory node")
+        }
+        let url = URL(fileURLWithPath: node.path)
+        do {
+            try bytes.write(to: url, options: .atomic)
+        } catch {
+            throw ConnectorError.network(error)
+        }
+        return node
+    }
+
     // MARK: - Walk
 
     private func walkChildren(of url: URL) -> [ConnectorNode] {

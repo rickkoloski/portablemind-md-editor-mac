@@ -71,10 +71,39 @@ protocol Connector: AnyObject, Sendable {
     /// numeric `LlmFile.id` out of `node.id`, while LocalConnector
     /// reads `node.path` as a URL.
     func openFile(_ node: ConnectorNode) async throws -> Data
+
+    /// Whether this connector supports writing back to `node`. Used
+    /// by the editor to decide whether a tab should be editable. The
+    /// answer can change over the connector's lifetime (capability
+    /// granted, network online/offline). Synchronous so the UI can
+    /// ask cheaply on every render. Default: false.
+    func canWrite(_ node: ConnectorNode) -> Bool
+
+    /// Persist `bytes` as the new content of `node`. Throws on error.
+    /// Returns the resulting `ConnectorNode` so callers can pick up
+    /// any server-assigned values that changed (a fresh signed URL
+    /// on PM; an updated mtime on Local; a refreshed
+    /// `lastSeenUpdatedAt`). Default: throws `.unsupported`.
+    ///
+    /// `force == true` (D19 phase 4) skips the optimistic conflict
+    /// check; the caller has explicitly agreed to overwrite a newer
+    /// server version.
+    func saveFile(_ node: ConnectorNode,
+                  bytes: Data,
+                  force: Bool) async throws -> ConnectorNode
 }
 
 extension Connector {
     func childrenSync(of path: String?) -> [ConnectorNode]? { nil }
+
+    func canWrite(_ node: ConnectorNode) -> Bool { false }
+
+    func saveFile(_ node: ConnectorNode,
+                  bytes: Data,
+                  force: Bool) async throws -> ConnectorNode {
+        throw ConnectorError.unsupported(
+            "saveFile not implemented by \(type(of: self))")
+    }
 }
 
 /// Position in a connector's tree. Value type; carries a back-pointer
@@ -97,6 +126,12 @@ struct ConnectorNode: Identifiable, Hashable {
     /// supported; for `.file` this is `true` iff the file extension is
     /// in the supported set (D18: `.md` only).
     let isSupported: Bool
+    /// D19: server-side `updated_at` as last seen by this client. The
+    /// connector populates this when it constructs the node from a
+    /// server response (PortableMind); nil for connectors with no
+    /// concept of remote mtime (Local). The save path uses this to
+    /// detect concurrent edits.
+    let lastSeenUpdatedAt: Date?
     /// Back-pointer to the owning connector so `children` can resolve
     /// synchronously where supported. Connectors are reference types;
     /// nodes never outlive their connector.
@@ -109,6 +144,7 @@ struct ConnectorNode: Identifiable, Hashable {
          fileCount: Int? = nil,
          tenant: TenantInfo? = nil,
          isSupported: Bool = true,
+         lastSeenUpdatedAt: Date? = nil,
          connector: any Connector) {
         self.id = id
         self.name = name
@@ -117,6 +153,7 @@ struct ConnectorNode: Identifiable, Hashable {
         self.fileCount = fileCount
         self.tenant = tenant
         self.isSupported = isSupported
+        self.lastSeenUpdatedAt = lastSeenUpdatedAt
         self.connector = connector
     }
 
@@ -164,4 +201,17 @@ enum ConnectorError: Error {
     case network(Error)
     /// Server returned a non-2xx status.
     case server(status: Int, message: String?)
+    /// D19: the user's tenant is over storage quota — distinct from
+    /// generic server errors so the UI can surface a useful message
+    /// (Harmoniq returns 402 with `error_code:
+    /// DOCUMENT_STORAGE_LIMIT_EXCEEDED`).
+    case storageQuotaExceeded(String)
+    /// D19: explicit write-permission failure on save (401/403 from
+    /// PATCH). Distinct from `.unauthenticated` so we can keep
+    /// read-only browsing alive while save is denied.
+    case writeForbidden(String)
+    /// D19: the server's `updated_at` is newer than what the client
+    /// last saw. Caller (the menu handler) catches this and prompts
+    /// the user to overwrite or cancel (Q2 decision).
+    case conflictDetected(serverUpdatedAt: Date)
 }

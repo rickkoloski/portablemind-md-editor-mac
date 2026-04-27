@@ -164,7 +164,11 @@ final class LiveRenderTextView: NSTextView {
         }
 
         // For each row group, find the cell whose column-x contains
-        // point.x, IF point.y is inside the row's y-extent.
+        // point.x, IF point.y is inside the row's y-extent. If the
+        // click lands on actual glyphs (inside glyphRect), return nil
+        // so the default NSLayoutManager hit test runs — it's
+        // accurate for on-text clicks. Only intercept clicks in
+        // empty cell space (in column+row extent, outside glyphRect).
         for (key, yExt) in rowYExtent {
             if point.y < yExt.minY || point.y > yExt.maxY { continue }
             let cellsInRow = cells
@@ -187,6 +191,8 @@ final class LiveRenderTextView: NSTextView {
                 let leftEdge = (idx == 0) ? -CGFloat.greatestFiniteMagnitude
                                           : colXMin
                 if point.x >= leftEdge && point.x < colXMax {
+                    // On-text click: defer to default hit test.
+                    if cell.glyphRect.contains(point) { return nil }
                     let last = cell.paragraphRange.location
                         + cell.paragraphRange.length - 1
                     return max(cell.paragraphRange.location, last)

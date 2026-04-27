@@ -61,7 +61,139 @@ final class LiveRenderTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         recordClickForDebugProbe(event: event)
+        // D17 follow-up — TK1 NSTextTable cells share a visual row, so
+        // `NSLayoutManager.glyphIndex(for:)` can return the last glyph
+        // of the previous cell when the click lands in empty space of
+        // the next cell. The hit test isn't cell-block-aware. We
+        // resolve which cell paragraph's bounding rect contains the
+        // click and place the caret at the end of that cell's
+        // content. Outside cells, fall through to default behavior.
+        let viewPoint = convert(event.locationInWindow, from: nil)
+        let containerPoint = NSPoint(
+            x: viewPoint.x - textContainerInset.width,
+            y: viewPoint.y - textContainerInset.height)
+        if let cellEnd = cellContentEnd(containingContainerPoint: containerPoint) {
+            window?.makeFirstResponder(self)
+            setSelectedRange(NSRange(location: cellEnd, length: 0))
+            return
+        }
         super.mouseDown(with: event)
+    }
+
+    /// Walk the cell paragraphs in storage, group them by (table,
+    /// row), compute each row's full y-extent (max of all cells in
+    /// the row — sparse cells inherit the wrapped neighbor's
+    /// height), and each cell's full x-extent (its column's range,
+    /// derived from adjacent cells' leading x edges). A click is in
+    /// a cell when the point lies in the rect (column-x, row-y).
+    /// Return the char offset of the cell's last content char (just
+    /// before its terminating `\n`). nil if click is outside all
+    /// cells.
+    ///
+    /// Why this exists: NSLayoutManager's hit-test isn't cell-block
+    /// -aware. `boundingRect(forGlyphRange:)` returns the rect where
+    /// glyphs actually drew, which for a sparse cell is much smaller
+    /// than the cell's visual area. A click below the sparse cell's
+    /// text falls outside that rect, and the layout manager picks
+    /// the nearest glyph in the wrapped neighbor — wrong cell. The
+    /// row+column expansion below makes the click target match what
+    /// the user sees.
+    private func cellContentEnd(containingContainerPoint point: NSPoint) -> Int? {
+        guard let lm = layoutManager,
+              let container = textContainer,
+              let storage = textStorage,
+              storage.length > 0 else { return nil }
+        let nsString = storage.string as NSString
+        let n = nsString.length
+
+        struct Cell {
+            let paragraphRange: NSRange
+            let table: NSTextTable
+            let row: Int
+            let col: Int
+            let glyphRect: NSRect      // where glyphs actually drew
+        }
+        var cells: [Cell] = []
+
+        var i = 0
+        while i < n {
+            let paraRange = nsString.paragraphRange(
+                for: NSRange(location: i, length: 0))
+            let attrs = storage.attributes(at: paraRange.location,
+                                           effectiveRange: nil)
+            if let pStyle = attrs[.paragraphStyle] as? NSParagraphStyle,
+               let block = pStyle.textBlocks.first(where: {
+                   $0 is NSTextTableBlock
+               }) as? NSTextTableBlock {
+                let glyphRange = lm.glyphRange(
+                    forCharacterRange: paraRange,
+                    actualCharacterRange: nil)
+                if glyphRange.length > 0 {
+                    let rect = lm.boundingRect(
+                        forGlyphRange: glyphRange, in: container)
+                    cells.append(Cell(
+                        paragraphRange: paraRange,
+                        table: block.table,
+                        row: block.startingRow,
+                        col: block.startingColumn,
+                        glyphRect: rect))
+                }
+            }
+            let nextI = paraRange.location + paraRange.length
+            i = nextI > i ? nextI : (i + 1)
+        }
+
+        // Group by (table, row); collect each row's y-extent.
+        struct RowKey: Hashable {
+            let tableID: ObjectIdentifier
+            let row: Int
+        }
+        var rowYExtent: [RowKey: (minY: CGFloat, maxY: CGFloat)] = [:]
+        for cell in cells {
+            let key = RowKey(tableID: ObjectIdentifier(cell.table),
+                             row: cell.row)
+            if let cur = rowYExtent[key] {
+                rowYExtent[key] = (
+                    min(cur.minY, cell.glyphRect.minY),
+                    max(cur.maxY, cell.glyphRect.maxY))
+            } else {
+                rowYExtent[key] = (
+                    cell.glyphRect.minY,
+                    cell.glyphRect.maxY)
+            }
+        }
+
+        // For each row group, find the cell whose column-x contains
+        // point.x, IF point.y is inside the row's y-extent.
+        for (key, yExt) in rowYExtent {
+            if point.y < yExt.minY || point.y > yExt.maxY { continue }
+            let cellsInRow = cells
+                .filter { ObjectIdentifier($0.table) == key.tableID
+                          && $0.row == key.row }
+                .sorted { $0.col < $1.col }
+            for (idx, cell) in cellsInRow.enumerated() {
+                // Column's x range: from this cell's glyph minX to
+                // the next cell's glyph minX (or +∞ for the last
+                // column). Each cell already starts at its column's
+                // leading edge; the next cell starts at the next
+                // column's leading edge.
+                let colXMin = cell.glyphRect.minX
+                let colXMax: CGFloat = (idx + 1 < cellsInRow.count)
+                    ? cellsInRow[idx + 1].glyphRect.minX
+                    : .greatestFiniteMagnitude
+                // Allow the leftmost column to capture clicks
+                // slightly to the left of the first glyph (gives
+                // the user a small margin).
+                let leftEdge = (idx == 0) ? -CGFloat.greatestFiniteMagnitude
+                                          : colXMin
+                if point.x >= leftEdge && point.x < colXMax {
+                    let last = cell.paragraphRange.location
+                        + cell.paragraphRange.length - 1
+                    return max(cell.paragraphRange.location, last)
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: - Keys

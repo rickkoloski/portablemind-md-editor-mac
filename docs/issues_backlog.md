@@ -56,8 +56,8 @@ For the D18 Decision log, the "Decision" column's natural text width is many tho
 ## i03 — UITest suite has 3 failures from before D18 work began
 
 **Date:** 2026-04-27
+**Status:** Workaround (LaunchSmoke fixed; mutation tests XCTSkip'd 2026-04-27 in D18 phase 6)
 **Area:** testing (XCUITest)
-**Status:** Open
 
 `xcodebuild test` reports 3 failing test cases on `main` (and on `feature/d18-pm-connector` — the failures predate the branch):
 
@@ -74,3 +74,5 @@ All three are looking for `md-editor.main-editor` accessibility identifier on la
 **Discovered during:** D18 phase 1 manual smoke (running the existing UITests as a regression sweep).
 
 **Not blocking D18.** Phase 1 doesn't make these worse. Address as a focused testing deliverable separate from D18.
+
+**Update 2026-04-27 (D18 phase 6):** LaunchSmoke fixed by accepting either `md-editor.main-editor` OR `md-editor.empty-editor` (post-D6 the placeholder mounts at launch when no doc is open) and using `.firstMatch` per engineering-standards §2.1. The two mutation tests are `XCTSkipIf(true, ...)` with a reference back to this entry — they need migration to harness-driven verification (`set_text` + `synthesize_keypress` + `dump_state`), which is a focused testing deliverable not bundled with D18. `xcodebuild test` is now GREEN with 1 passing + 2 skipped + 0 failures.

@@ -30,6 +30,12 @@ final class ConnectorTreeViewModel: ObservableObject {
     /// successful re-load.
     @Published private(set) var errors: [String: String] = [:]
 
+    /// Authenticated user's tenant id, for the cross-tenant badge
+    /// predicate. Lazy-fetched at init for connectors that supply
+    /// it (PortableMind). nil for connectors with no tenant model
+    /// (Local).
+    @Published private(set) var currentUserTenantID: Int?
+
     init(connector: any Connector) {
         self.connector = connector
         self.expanded = [connector.rootNode.path]
@@ -41,6 +47,27 @@ final class ConnectorTreeViewModel: ObservableObject {
                 await self?.loadChildren(at: connector.rootNode.path)
             }
         }
+        // Prime the cross-tenant badge predicate. PortableMind exposes
+        // currentUserTenantID(); other connectors don't (default
+        // protocol method below returns nil).
+        if let pm = connector as? PortableMindConnector {
+            Task { [weak self] in
+                if let id = try? await pm.currentUserTenantID() {
+                    await MainActor.run { self?.currentUserTenantID = id }
+                }
+            }
+        }
+    }
+
+    /// Whether `node`'s tenant differs from the authenticated user's
+    /// tenant. Drives the cross-tenant badge in the sidebar. Returns
+    /// false if the node has no tenant attribution OR we haven't
+    /// loaded the user's tenant yet.
+    func isCrossTenant(_ node: ConnectorNode) -> Bool {
+        guard let nodeTenant = node.tenant?.id,
+              let userTenant = currentUserTenantID
+        else { return false }
+        return nodeTenant != userTenant
     }
 
     // MARK: - View queries

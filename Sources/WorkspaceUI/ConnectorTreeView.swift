@@ -74,6 +74,12 @@ private struct ConnectorRowView: View {
                 .foregroundStyle(node.isSupported ? .primary : Color.secondary)
                 .fontWeight(level == 0 ? .semibold : .regular)
 
+            // Cross-tenant badge (PortableMind only; visible when
+            // node.tenant != currentUser.tenant).
+            if let tenant = node.tenant, viewModel.isCrossTenant(node) {
+                TenantInitialsBadge(tenant: tenant)
+            }
+
             // In-flight spinner
             if viewModel.isLoading(node.path) {
                 ProgressView()
@@ -99,6 +105,7 @@ private struct ConnectorRowView: View {
         .help(node.isSupported ? "" : "file type not supported")
         .accessibilityIdentifier(
             AccessibilityIdentifiers.folderTreeRow(id: node.id))
+        .accessibilityHint(node.isSupported ? "" : "file type not supported")
     }
 
     @ViewBuilder

@@ -497,6 +497,16 @@ final class HarnessCommandPoller {
                 "name": tenant.name,
                 "enterpriseIdentifier": tenant.enterpriseIdentifier
             ]
+            // Phase 4 — derive badge state for assertion. Badge
+            // visible iff cross-tenant (node.tenant != current user).
+            if viewModel.isCrossTenant(node) {
+                dict["tenantBadge"] = [
+                    "initials": TenantInitialsBadge.initials(from: tenant.name),
+                    "tooltip": tenant.name,
+                    "fgHex": "#E5007E",
+                    "bgHex": "#FCE4EC"
+                ]
+            }
         }
         if let error = viewModel.errorMessage(at: node.path) {
             dict["error"] = error

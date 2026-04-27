@@ -110,13 +110,17 @@ struct MdEditorApp: App {
                     .keyboardShortcut("o", modifiers: [.command, .shift])
             }
             // D14: Save / Save As. Operates on the focused document.
+            // D18 phase 5: disabled when the focused tab is read-only
+            // (PortableMind tabs).
             CommandGroup(replacing: .saveItem) {
                 Button("Save") { saveFocused() }
                     .keyboardShortcut("s", modifiers: .command)
                     .accessibilityIdentifier(AccessibilityIdentifiers.fileMenuSave)
+                    .disabled(workspace.tabs.focused?.isReadOnly == true)
                 Button("Save As…") { saveAsFocused() }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                     .accessibilityIdentifier(AccessibilityIdentifiers.fileMenuSaveAs)
+                    .disabled(workspace.tabs.focused?.isReadOnly == true)
             }
 #if DEBUG
             // D18 phase 2: dev-only "Set PortableMind Token…" menu

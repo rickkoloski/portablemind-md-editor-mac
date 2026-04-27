@@ -231,6 +231,18 @@ final class HarnessCommandPoller {
                               parentPath: params["parentPath"] as? String,
                               to: params["path"] as? String
                                 ?? "/tmp/mdeditor-connector-tree.json")
+        // D18 phase 5 — file open via connector + read-only state.
+        case "connector_open_file":
+            // ASYNC: triggers connector.openFile, opens a tab on
+            // success. Driver waits for `dump_focused_tab_info` to
+            // reflect the new tab.
+            connectorOpenFile(connectorID: params["connectorID"] as? String,
+                              path: params["path"] as? String,
+                              resultPath: params["resultPath"] as? String
+                                ?? "/tmp/mdeditor-open-result.json")
+        case "dump_command_state":
+            dumpCommandState(to: params["path"] as? String
+                ?? "/tmp/mdeditor-commands.json")
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -349,9 +361,20 @@ final class HarnessCommandPoller {
             writeJSONError(["error": "no focused doc"], to: path)
             return
         }
+        var origin: [String: Any] = ["kind": "local"]
+        if case .portableMind(let cid, let fid, let dpath) = doc.origin {
+            origin = [
+                "kind": "portablemind",
+                "connectorID": cid,
+                "fileID": fid,
+                "displayPath": dpath
+            ]
+        }
         let payload: [String: Any] = [
             "url": doc.url?.path ?? "",
             "displayName": doc.displayName,
+            "isReadOnly": doc.isReadOnly,
+            "origin": origin,
             "sourceLength": (doc.source as NSString).length,
             "externallyDeleted": doc.externallyDeleted
         ]
@@ -603,6 +626,154 @@ final class HarnessCommandPoller {
                 withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
                 try? data.write(to: URL(fileURLWithPath: path))
             }
+        }
+    }
+
+    /// `connector_open_file` — programmatically open a file via a
+    /// connector. Drives the same flow as a row click. Async; writes
+    /// a small status envelope to `resultPath` so the driver can
+    /// distinguish open-success from open-failure.
+    private func connectorOpenFile(connectorID: String?,
+                                   path: String?,
+                                   resultPath: String) {
+        try? Data().write(to: URL(fileURLWithPath: resultPath))
+        guard let connectorID, let path else {
+            writeJSONError(["ok": false, "error": "missing params"],
+                           to: resultPath)
+            return
+        }
+        let store = WorkspaceStore.shared
+        guard let connector = store.connectors.first(
+            where: { $0.id == connectorID }),
+              let model = store.treeViewModels[connectorID]
+        else {
+            writeJSONError(["ok": false,
+                            "error": "no connector with id \(connectorID)"],
+                           to: resultPath)
+            return
+        }
+        // Resolve a ConnectorNode by walking already-loaded children
+        // (the harness usually expands the parent path via
+        // `expand_sidebar_path` before opening). For Local the node is
+        // synthesized from the path; for PM we need the loaded node so
+        // we get the correct `id` (which encodes the LlmFile id).
+        Task.detached {
+            let node = await Self.findOrSynthesizeNode(
+                connector: connector,
+                viewModel: model,
+                path: path)
+            guard let node else {
+                Self.writeJSONErrorStatic(
+                    ["ok": false,
+                     "error": "no node found for path \(path); expand the parent first"],
+                    to: resultPath)
+                return
+            }
+            do {
+                let bytes = try await connector.openFile(node)
+                let text = String(data: bytes, encoding: .utf8) ?? ""
+                let fileID: Int = {
+                    let prefix = "\(connector.id):file:"
+                    if node.id.hasPrefix(prefix) {
+                        return Int(node.id.dropFirst(prefix.count)) ?? -1
+                    }
+                    return -1
+                }()
+                let origin: EditorDocument.Origin =
+                    (connector.id == "local")
+                        ? .local
+                        : .portableMind(connectorID: connector.id,
+                                        fileID: fileID,
+                                        displayPath: node.path)
+                await MainActor.run {
+                    if connector.id == "local" {
+                        _ = store.tabs.open(
+                            fileURL: URL(fileURLWithPath: node.path))
+                    } else {
+                        store.tabs.openReadOnly(content: text, origin: origin)
+                    }
+                }
+                Self.writeJSONErrorStatic(
+                    ["ok": true,
+                     "displayName": node.name,
+                     "byteCount": bytes.count],
+                    to: resultPath)
+            } catch {
+                Self.writeJSONErrorStatic(
+                    ["ok": false, "error": "\(error)"],
+                    to: resultPath)
+            }
+        }
+    }
+
+    /// Search the view-model's loaded subtree for a node matching
+    /// `path`; if not found and the connector is Local, synthesize
+    /// one (the local filesystem accepts the path directly).
+    @MainActor
+    private static func findOrSynthesizeNode(
+        connector: any Connector,
+        viewModel: ConnectorTreeViewModel,
+        path: String
+    ) -> ConnectorNode? {
+        // BFS through the loaded paths. childrenIfLoaded returns sync
+        // results for local; for PM, returns nil if not loaded.
+        var queue: [String] = [connector.rootNode.path]
+        while !queue.isEmpty {
+            let parent = queue.removeFirst()
+            guard let kids = viewModel.childrenIfLoaded(at: parent) else {
+                continue
+            }
+            for kid in kids {
+                if kid.path == path { return kid }
+                if kid.kind == .directory { queue.append(kid.path) }
+            }
+        }
+        // Fallback for Local: build a node directly. For PM this would
+        // miss the file id; require an expanded subtree first.
+        if connector.id == "local" {
+            return ConnectorNode(
+                id: "\(connector.id):\(path)",
+                name: (path as NSString).lastPathComponent,
+                path: path,
+                kind: .file,
+                fileCount: nil,
+                tenant: nil,
+                isSupported: path.lowercased().hasSuffix(".md"),
+                connector: connector)
+        }
+        return nil
+    }
+
+    /// Static helper used from Task.detached — JSONSerialization +
+    /// atomic write. Marked `nonisolated` so it doesn't inherit the
+    /// outer @MainActor isolation; harness async paths must call it
+    /// from background contexts.
+    nonisolated private static func writeJSONErrorStatic(
+        _ payload: [String: Any], to path: String
+    ) {
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    /// `dump_command_state` — emit the enabled state of save-related
+    /// menu commands. Drives Phase 5's "save disables for read-only
+    /// tabs" assertion.
+    private func dumpCommandState(to path: String) {
+        let store = WorkspaceStore.shared
+        let focused = store.tabs.focused
+        let isReadOnly = focused?.isReadOnly ?? false
+        let payload: [String: Any] = [
+            "save": !isReadOnly && focused != nil,
+            "saveAs": !isReadOnly && focused != nil,
+            "reason": isReadOnly ? "focused tab is read-only"
+                                  : (focused == nil ? "no focused tab" : "")
+        ]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
         }
     }
 

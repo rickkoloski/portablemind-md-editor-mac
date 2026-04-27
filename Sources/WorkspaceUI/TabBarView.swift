@@ -61,6 +61,24 @@ private struct TabItemView: View {
                     .foregroundStyle(isFocused ? .primary : .secondary)
                     .frame(maxWidth: 160, alignment: .leading)
 
+                // D18 phase 5 — small pill for PortableMind read-only
+                // tabs. Single-color pill (not the AI fuchsia, which is
+                // reserved for tenant attribution + AI surfaces).
+                if document.isReadOnly {
+                    Text("READ-ONLY")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            Capsule()
+                                .stroke(Color.secondary.opacity(0.5),
+                                        lineWidth: 0.5)
+                        )
+                        .help("This document is read-only (PortableMind, D18)")
+                        .accessibilityLabel("read-only document")
+                }
+
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .semibold))

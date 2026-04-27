@@ -98,13 +98,20 @@ final class PortableMindConnector: Connector {
 
     func childrenSync(of path: String?) -> [ConnectorNode]? { nil }
 
-    func openFile(at path: String) async throws -> Data {
-        // For PM, `path` is the file's full_path. We need the file's
-        // numeric id to call fetchFileContent. Phase 5 wires this up
-        // by carrying the id on ConnectorNode (encoded into id field
-        // as "portablemind:file:<id>"); for phase 3 we just throw.
-        throw ConnectorError.unsupported(
-            "PortableMindConnector.openFile lands in phase 5")
+    func openFile(_ node: ConnectorNode) async throws -> Data {
+        guard node.kind == .file else {
+            throw ConnectorError.unsupported("openFile called on directory node")
+        }
+        // ConnectorNode.id format for PM file nodes:
+        //   "portablemind:file:<numeric LlmFile id>"
+        let prefix = "\(id):file:"
+        guard node.id.hasPrefix(prefix),
+              let fileID = Int(node.id.dropFirst(prefix.count))
+        else {
+            throw ConnectorError.unsupported(
+                "couldn't parse PM file id from node id \(node.id)")
+        }
+        return try await api.fetchFileContent(fileID: fileID)
     }
 
     // MARK: - Helpers

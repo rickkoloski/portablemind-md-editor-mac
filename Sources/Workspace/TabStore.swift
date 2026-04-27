@@ -36,6 +36,34 @@ final class TabStore: ObservableObject {
         return doc
     }
 
+    /// Open a document that has no local file backing it (PortableMind
+    /// read-only). De-dupes on origin so re-clicking the same PM file
+    /// re-focuses the existing tab.
+    @discardableResult
+    func openReadOnly(content: String,
+                      origin: EditorDocument.Origin) -> EditorDocument {
+        if case .portableMind(let cid, let fid, _) = origin,
+           let existingIndex = documents.firstIndex(where: {
+               if case .portableMind(let xcid, let xfid, _) = $0.origin {
+                   return xcid == cid && xfid == fid
+               }
+               return false
+           }) {
+            focusedIndex = existingIndex
+            return documents[existingIndex]
+        }
+        let type: any DocumentType = MarkdownDocumentType()
+        let doc = EditorDocument(url: nil,
+                                 source: content,
+                                 documentType: type,
+                                 isReadOnly: true,
+                                 origin: origin)
+        let insertIndex = (focusedIndex.map { $0 + 1 }) ?? documents.count
+        documents.insert(doc, at: insertIndex)
+        focusedIndex = insertIndex
+        return doc
+    }
+
     /// Close the tab for document `id`. Moves focus to the neighbor
     /// on the right, falling back to the left.
     func close(id: UUID) {

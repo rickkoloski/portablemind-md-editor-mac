@@ -63,9 +63,14 @@ protocol Connector: AnyObject, Sendable {
     /// Default: nil — async-only connector.
     func childrenSync(of path: String?) -> [ConnectorNode]?
 
-    /// Read file contents at `path`. Throws `.unsupported` if the
-    /// connector can't satisfy a read for this kind of path.
-    func openFile(at path: String) async throws -> Data
+    /// Read file content for `node`. D18 calls this only for nodes
+    /// where `kind == .file && isSupported == true`. Connectors may
+    /// throw `ConnectorError.unsupported` if they can't satisfy the
+    /// read. The full node is passed (not just the path) so connectors
+    /// can use any field they need — PortableMindConnector parses its
+    /// numeric `LlmFile.id` out of `node.id`, while LocalConnector
+    /// reads `node.path` as a URL.
+    func openFile(_ node: ConnectorNode) async throws -> Data
 }
 
 extension Connector {

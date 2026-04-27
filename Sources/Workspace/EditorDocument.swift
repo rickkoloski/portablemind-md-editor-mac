@@ -23,14 +23,35 @@ final class EditorDocument: ObservableObject, Identifiable {
     /// consumes this and clears it back to `nil` on apply.
     @Published var pendingFocusTarget: EditorFocusTarget? = nil
 
+    /// D18 phase 5 — read-only tabs (PortableMind file open) cannot
+    /// save and the editor disables typing. Save-back lands as a
+    /// future deliverable after D19.
+    let isReadOnly: Bool
+
+    /// Where this document came from. `.local` for filesystem-backed
+    /// tabs (the D6 path); `.portableMind(...)` for tabs opened via
+    /// the connector.
+    let origin: Origin
+
+    enum Origin {
+        case local
+        case portableMind(connectorID: String, fileID: Int, displayPath: String)
+    }
+
     let documentType: any DocumentType
 
     private let watcher = ExternalEditWatcher()
 
-    init(url: URL?, source: String, documentType: any DocumentType) {
+    init(url: URL?,
+         source: String,
+         documentType: any DocumentType,
+         isReadOnly: Bool = false,
+         origin: Origin = .local) {
         self.url = url
         self.source = source
         self.documentType = documentType
+        self.isReadOnly = isReadOnly
+        self.origin = origin
 
         watcher.onChange = { [weak self] newText in
             guard let self else { return }
@@ -39,7 +60,8 @@ final class EditorDocument: ObservableObject, Identifiable {
                 self.source = newText
             }
         }
-        if let url { watcher.watch(url: url) }
+        // PM read-only tabs have no local file to watch.
+        if !isReadOnly, let url { watcher.watch(url: url) }
     }
 
     deinit {
@@ -47,20 +69,31 @@ final class EditorDocument: ObservableObject, Identifiable {
     }
 
     /// The filename shown in the tab and the empty-state placeholder.
+    /// PM read-only tabs derive the name from the origin's display
+    /// path since they have no `url`.
     var displayName: String {
-        url?.lastPathComponent ?? "Untitled"
+        if let url { return url.lastPathComponent }
+        switch origin {
+        case .local:
+            return "Untitled"
+        case .portableMind(_, _, let displayPath):
+            return (displayPath as NSString).lastPathComponent
+        }
     }
 
     // MARK: - D14 Save / Save As
 
     enum SaveError: LocalizedError {
         case noURL
+        case readOnly
         case writeFailed(URL, Error)
 
         var errorDescription: String? {
             switch self {
             case .noURL:
                 return "Document has no file location yet — use Save As…"
+            case .readOnly:
+                return "This document is read-only (PortableMind, D18). Save-back lands in a future deliverable."
             case .writeFailed(let url, let underlying):
                 return "Couldn't save \(url.lastPathComponent): \(underlying.localizedDescription)"
             }
@@ -71,8 +104,9 @@ final class EditorDocument: ObservableObject, Identifiable {
     /// external-edit watcher around the write so our own change doesn't
     /// echo back through `onChange` and overwrite a fresh user edit.
     /// Throws `.noURL` if the document is untitled — caller should
-    /// fall back to `saveAs(to:)`.
+    /// fall back to `saveAs(to:)`. Throws `.readOnly` on PM tabs.
     func save() throws {
+        if isReadOnly { throw SaveError.readOnly }
         guard let url else {
             throw SaveError.noURL
         }
@@ -82,6 +116,7 @@ final class EditorDocument: ObservableObject, Identifiable {
     /// Set a new URL for the document and write `source` there. Used
     /// by Save As and by Save on an untitled document.
     func saveAs(to newURL: URL) throws {
+        if isReadOnly { throw SaveError.readOnly }
         try writeAndRewatch(url: newURL)
         // Update url after a successful write so a failed save doesn't
         // leave the document mis-pointed at a non-existent file.

@@ -60,11 +60,37 @@ struct WorkspaceView: View {
     }
 
     private func handleSelect(_ node: ConnectorNode, on connector: any Connector) {
-        // Local files open via the existing TabStore path.
-        // PortableMind file open lands in phase 5 (read-only tab).
         if connector.id == "local" {
             _ = workspace.tabs.open(fileURL: URL(fileURLWithPath: node.path))
+            return
         }
+        // PortableMind: read-only tab. Async fetch via the connector;
+        // open a read-only tab on completion. Failures present as a
+        // brief alert (network / auth issues are loud enough that we
+        // don't want them silently dropped).
+        Task {
+            do {
+                let bytes = try await connector.openFile(node)
+                let text = String(data: bytes, encoding: .utf8) ?? ""
+                let fileID = Self.parseFileID(from: node.id, prefix: "\(connector.id):file:")
+                let origin = EditorDocument.Origin.portableMind(
+                    connectorID: connector.id,
+                    fileID: fileID ?? -1,
+                    displayPath: node.path
+                )
+                workspace.tabs.openReadOnly(content: text, origin: origin)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Couldn't open \(node.name)"
+                alert.informativeText = "\(error)"
+                alert.runModal()
+            }
+        }
+    }
+
+    private static func parseFileID(from id: String, prefix: String) -> Int? {
+        guard id.hasPrefix(prefix) else { return nil }
+        return Int(id.dropFirst(prefix.count))
     }
 }
 

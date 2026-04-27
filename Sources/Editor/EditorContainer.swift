@@ -33,7 +33,7 @@ struct EditorContainer: NSViewRepresentable {
         scroll.borderType = .noBorder
 
         let textView = LiveRenderTextView()
-        textView.isEditable = true
+        textView.isEditable = !document.isReadOnly
         textView.isRichText = false
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false

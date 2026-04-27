@@ -108,6 +108,14 @@ final class PortableMindAPIClient {
         }
         request.setValue("Bearer \(token)",
                          forHTTPHeaderField: "Authorization")
+        // Harmoniq's BaseController#set_tenant resolves the tenant
+        // BEFORE validating the JWT — without an X-Tenant-ID header
+        // (or a `tenant_id` query param), every call returns
+        // `400 invalid tenant`. The JWT payload carries
+        // `tenant_enterprise_identifier`; extract and forward it.
+        if let identifier = JWTPayload.tenantEnterpriseIdentifier(from: token) {
+            request.setValue(identifier, forHTTPHeaderField: "X-Tenant-ID")
+        }
 
         let (data, response): (Data, URLResponse)
         do {

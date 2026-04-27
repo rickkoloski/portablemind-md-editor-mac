@@ -51,6 +51,7 @@
 		7D9EBA3EE9944641D492EB16 /* MutationToolbarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BBAE8875CC8A86DE2337B2F /* MutationToolbarTests.swift */; };
 		7FEB015C81AC6829AC9F3050 /* HeadingMutations.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2484BD135E61A6A91F4793E /* HeadingMutations.swift */; };
 		8497072ED723890B67CC74E2 /* WorkspaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553EA0392CDEB0455C90FC2F /* WorkspaceStore.swift */; };
+		8871B18E7A19D69F06EAD315 /* JWTPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E35D34EFC03E848507FF3C /* JWTPayload.swift */; };
 		889FAC8100CC57FC80459DF7 /* OpenFolderCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72B9481B2B2DEC236C3C389 /* OpenFolderCommand.swift */; };
 		8C22915BD0E56A96BCE845A5 /* EditorFocusTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA53ED5FC52B03E72A289E5B /* EditorFocusTarget.swift */; };
 		8FBA5ED7EC203E9BBC76B990 /* KeychainTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96F845B999009E027F28B66B /* KeychainTokenStore.swift */; };
@@ -137,6 +138,7 @@
 		A03D8CF6CE596C7EA09CBC7D /* EmptyEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyEditorView.swift; sourceTree = "<group>"; };
 		A1D086F044F795F5BE8F33D4 /* EditorDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorDocument.swift; sourceTree = "<group>"; };
 		A5CD85D99BA4A020FC41BBAF /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
+		A7E35D34EFC03E848507FF3C /* JWTPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JWTPayload.swift; sourceTree = "<group>"; };
 		A8F1E5A7D9544B0E06705EBD /* TabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarView.swift; sourceTree = "<group>"; };
 		ABB27C546F668F30E645724B /* DocumentTypeRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentTypeRegistry.swift; sourceTree = "<group>"; };
 		B038FAE2D09EC30C229AB152 /* MutationKeyboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationKeyboardTests.swift; sourceTree = "<group>"; };
@@ -303,6 +305,7 @@
 		789CCD4DED55C1DFDB47ADE1 /* PortableMind */ = {
 			isa = PBXGroup;
 			children = (
+				A7E35D34EFC03E848507FF3C /* JWTPayload.swift */,
 				F873FF8CD782C99039894CEE /* PortableMindAPIClient.swift */,
 				BFAE7E5D6F6118A49F7BDE9F /* PortableMindAPITypes.swift */,
 				711283719E1D5964FCE23CC5 /* PortableMindConnector.swift */,
@@ -575,6 +578,7 @@
 				5611141BE52339A49A45837B /* HeadingToolbarMenu.swift in Sources */,
 				32F266F823BC3F25F489BA43 /* InlineCodeMutation.swift in Sources */,
 				5D2D9AB116332614C2150927 /* ItalicMutation.swift in Sources */,
+				8871B18E7A19D69F06EAD315 /* JWTPayload.swift in Sources */,
 				05113E83F30B6762FB626B59 /* KeyboardBindings.swift in Sources */,
 				8FBA5ED7EC203E9BBC76B990 /* KeychainTokenStore.swift in Sources */,
 				BF47DBE8DD260AAF71874D12 /* LineNumberRulerView.swift in Sources */,

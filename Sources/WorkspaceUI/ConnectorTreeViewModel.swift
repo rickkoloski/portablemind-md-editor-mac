@@ -36,9 +36,18 @@ final class ConnectorTreeViewModel: ObservableObject {
     /// (Local).
     @Published private(set) var currentUserTenantID: Int?
 
+    /// D21 — when true, the root row in the sidebar displays the
+    /// connector's full path (home-relative for Local) instead of
+    /// just the directory's last path component. Lets users with
+    /// multiple "src/..." projects open distinguish them at a
+    /// glance. Persisted per-connector via UserDefaults.
+    @Published private(set) var rootShowsPath: Bool
+
     init(connector: any Connector) {
         self.connector = connector
         self.expanded = [connector.rootNode.path]
+        self.rootShowsPath = UserDefaults.standard.bool(
+            forKey: Self.rootShowsPathKey(connector.id))
         // For async connectors, kick off the root load eagerly so the
         // root row's spinner animates from the moment the sidebar
         // mounts (rather than after the user clicks expand).
@@ -130,6 +139,20 @@ final class ConnectorTreeViewModel: ObservableObject {
     /// subsequent expand renders instantly.
     func collapse(path: String) {
         expanded.remove(path)
+    }
+
+    /// D21 — flip the root-row display between connector name and
+    /// full path. Persisted per-connector so the setting survives
+    /// relaunches.
+    func toggleRootShowsPath() {
+        rootShowsPath.toggle()
+        UserDefaults.standard.set(
+            rootShowsPath,
+            forKey: Self.rootShowsPathKey(connector.id))
+    }
+
+    private static func rootShowsPathKey(_ connectorID: String) -> String {
+        "tree.rootShowsPath.\(connectorID)"
     }
 
     // MARK: - Async load

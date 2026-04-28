@@ -76,3 +76,32 @@ All three are looking for `md-editor.main-editor` accessibility identifier on la
 **Not blocking D18.** Phase 1 doesn't make these worse. Address as a focused testing deliverable separate from D18.
 
 **Update 2026-04-27 (D18 phase 6):** LaunchSmoke fixed by accepting either `md-editor.main-editor` OR `md-editor.empty-editor` (post-D6 the placeholder mounts at launch when no doc is open) and using `.firstMatch` per engineering-standards §2.1. The two mutation tests are `XCTSkipIf(true, ...)` with a reference back to this entry — they need migration to harness-driven verification (`set_text` + `synthesize_keypress` + `dump_state`), which is a focused testing deliverable not bundled with D18. `xcodebuild test` is now GREEN with 1 passing + 2 skipped + 0 failures.
+
+---
+
+## i04 — Bearer token doesn't persist across rebuilds (ad-hoc signing churn)
+
+**Date:** 2026-04-28
+**Area:** auth / signing
+**Status:** Workaround (verified — token survives rebuild + relaunch, 2026-04-28)
+
+CD reported having to re-paste the PortableMind bearer token through the Debug menu after every rebuild — observed across multiple D18/D19 sessions. The token *was* in the Keychain; the next build just couldn't read it.
+
+**Root cause:** `project.yml` builds the app ad-hoc-signed (`CODE_SIGN_IDENTITY: "-"`, empty `DEVELOPMENT_TEAM`). On macOS, Keychain items written without an explicit `kSecAttrAccessControl` get a default ACL bound to the writing app's signing identity. With no certificate, the ACL falls back to a cdhash-based binding. Each rebuild produces a different cdhash, so the next launch's `SecItemCopyMatching` returns `errSecItemNotFound` (or pops a "wants to access" prompt). Token isn't lost — the new binary literally can't see the prior item.
+
+The reliable fix-fix is a stable signing identity (Apple Developer enrollment → real `DEVELOPMENT_TEAM` + `Apple Development` cert). Enrollment is currently blocked on an external constraint (CD doesn't have a workable phone number for Apple ID 2FA in his current location).
+
+**Workaround applied 2026-04-28:** `KeychainTokenStore` rewritten to persist the token to a 0600 file in `~/Library/Application Support/ai.portablemind.md-editor/token.txt`. Public API (`save/load/clear`) and type name are unchanged so call sites don't move. Bundle id is stable across rebuilds, so the token survives.
+
+Security profile of the stopgap is comparable to the broken Keychain it replaces in this single-user dev context: 0600 perms keep the file unreadable to other users; in-process code reading-as-CD is no different from in-process code calling Keychain APIs as CD. This is *not* an acceptable shipping posture; it's a stopgap to unblock dev iteration.
+
+**Fix path when enrollment lands:**
+1. Set `DEVELOPMENT_TEAM` to the new Individual team ID in `project.yml`.
+2. Set `CODE_SIGN_IDENTITY: "Apple Development"` (debug) and `"Developer ID Application"` (release) — automatic style.
+3. Revert `Sources/Auth/KeychainTokenStore.swift` to the SecItem-based implementation (use git history pre-2026-04-28).
+4. Delete the file-based artifact at `~/Library/Application Support/ai.portablemind.md-editor/token.txt` — the new build with stable signing will write to the Keychain fresh.
+5. Add a one-time migration check in `KeychainTokenStore.load()` that, on Keychain miss, looks for the legacy file, imports the token, and deletes the file. Drop the migration after a release window.
+
+**Discovered during:** session 2026-04-28 (auth-persistence diagnosis preceding what was originally framed as a Settings UI deliverable).
+
+**Not blocking active deliverables.** D19 phases 4-5 and onward proceed unchanged; this fix only restores the token-persistence quality-of-life that the broken Keychain had implicitly promised.

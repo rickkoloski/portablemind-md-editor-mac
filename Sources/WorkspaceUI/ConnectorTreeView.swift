@@ -102,7 +102,7 @@ private struct ConnectorRowView: View {
         .onTapGesture {
             handleTap()
         }
-        .help(node.isSupported ? "" : "file type not supported")
+        .help(rowHelpText)
         .accessibilityIdentifier(
             AccessibilityIdentifiers.folderTreeRow(id: node.id))
         .accessibilityHint(node.isSupported ? "" : "file type not supported")
@@ -157,6 +157,18 @@ private struct ConnectorRowView: View {
             return node.connector.rootIconName
         }
         return node.kind == .directory ? "folder" : "doc.text"
+    }
+
+    /// D21 — tooltip text. Local root rows show the full `~`-prefixed
+    /// path (so users with multiple `src/...` projects open can
+    /// distinguish them at a glance). Unsupported file rows show the
+    /// "not supported" hint. Other rows show nothing.
+    private var rowHelpText: String {
+        if level == 0, node.connector.id == "local" {
+            return PathFormatting.displayLocalPath(node.path)
+        }
+        if !node.isSupported { return "file type not supported" }
+        return ""
     }
 
     private func handleTap() {

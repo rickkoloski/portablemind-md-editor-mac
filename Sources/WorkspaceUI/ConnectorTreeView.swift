@@ -67,8 +67,10 @@ private struct ConnectorRowView: View {
                 .foregroundStyle(node.kind == .directory ? .secondary : .primary)
                 .frame(width: 16)
 
-            // Name (with disabled state for unsupported files)
-            Text(node.name)
+            // Name (with disabled state for unsupported files).
+            // D21 — Local root row swaps to home-relative path when
+            // the user has toggled "Show Path in Tree."
+            Text(displayedName)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .foregroundStyle(node.isSupported ? .primary : Color.secondary)
@@ -122,6 +124,19 @@ private struct ConnectorRowView: View {
                     PathFormatting.relativePathForCopy(node))
             }
             .keyboardShortcut("c", modifiers: [.command, .option, .shift])
+
+            // D21 — toggle the root row's display between just-name
+            // and full home-relative path. Local roots only;
+            // PortableMind root has no analogous path concept.
+            // Persists per-connector via UserDefaults.
+            if level == 0, node.connector.id == "local" {
+                Divider()
+                Button(viewModel.rootShowsPath
+                       ? "Hide Path in Tree"
+                       : "Show Path in Tree") {
+                    viewModel.toggleRootShowsPath()
+                }
+            }
         }
     }
 
@@ -169,6 +184,19 @@ private struct ConnectorRowView: View {
         }
         if !node.isSupported { return "file type not supported" }
         return ""
+    }
+
+    /// D21 — what to display as the row's name. Local root rows can
+    /// be toggled to show the full home-relative path instead of just
+    /// the directory's last component (per `viewModel.rootShowsPath`).
+    /// Everything else shows `node.name` unchanged.
+    private var displayedName: String {
+        if level == 0,
+           node.connector.id == "local",
+           viewModel.rootShowsPath {
+            return PathFormatting.displayLocalPath(node.path)
+        }
+        return node.name
     }
 
     private func handleTap() {

@@ -80,10 +80,11 @@ final class LocalConnector: Connector {
         return walkChildren(of: url)
     }
 
-    func openFile(_ node: ConnectorNode) async throws -> Data {
+    func openFile(_ node: ConnectorNode) async throws -> (Data, ConnectorNode) {
         let url = URL(fileURLWithPath: node.path)
         do {
-            return try Data(contentsOf: url)
+            let bytes = try Data(contentsOf: url)
+            return (bytes, node)
         } catch {
             throw ConnectorError.network(error)
         }

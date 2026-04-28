@@ -142,7 +142,7 @@ struct MdEditorApp: App {
         alert.alertStyle = .informational
         let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         if let existing = try? KeychainTokenStore.shared.load() {
-            field.stringValue = existing ?? ""
+            field.stringValue = existing
         }
         alert.accessoryView = field
         alert.addButton(withTitle: "Save")
@@ -180,12 +180,30 @@ struct MdEditorApp: App {
         }
         // D19 phase 3 — save() is async (PM saves over the network).
         // Local saves complete synchronously inside the async function.
+        // D19 phase 4 — catch ConnectorError.conflictDetected and ask
+        // the user before overwriting; on Overwrite, re-save with
+        // force: true.
         Task {
-            do {
-                try await doc.save()
-            } catch {
-                presentSaveError(error)
+            await attemptSave(doc: doc, force: false)
+        }
+    }
+
+    private func attemptSave(doc: EditorDocument, force: Bool) async {
+        do {
+            try await doc.save(force: force)
+        } catch ConnectorError.conflictDetected(let serverUpdatedAt) {
+            let choice = await ConflictDialogPresenter.shared.present(
+                serverUpdatedAt: serverUpdatedAt)
+            switch choice {
+            case .overwrite:
+                await attemptSave(doc: doc, force: true)
+            case .cancel:
+                // Leave the buffer dirty; user explicitly chose not to
+                // overwrite. No error to present.
+                break
             }
+        } catch {
+            presentSaveError(error)
         }
     }
 

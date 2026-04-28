@@ -220,8 +220,13 @@ final class HarnessCommandPoller {
             // tab (routes through the connector). Result envelope
             // emits ok / error / dirty / isReadOnly so the driver
             // can verify the save path end-to-end.
-            connectorSaveFocused(to: params["path"] as? String
-                ?? "/tmp/mdeditor-save-result.json")
+            // D19 phase 4 — optional `force: true` skips the conflict
+            // check (drives the Overwrite path without the dialog).
+            let force = (params["force"] as? Bool) ?? false
+            connectorSaveFocused(
+                force: force,
+                to: params["path"] as? String
+                    ?? "/tmp/mdeditor-save-result.json")
         case "pm_save_smoke":
             // D19 phase 2 — ASYNC; writes `text` as the new content
             // of the LlmFile with id `fileID`. Result envelope at
@@ -269,6 +274,15 @@ final class HarnessCommandPoller {
         case "dump_command_state":
             dumpCommandState(to: params["path"] as? String
                 ?? "/tmp/mdeditor-commands.json")
+        // D19 phase 4 — conflict-detection harness affordances.
+        case "dump_save_state":
+            dumpSaveState(to: params["path"] as? String
+                ?? "/tmp/mdeditor-save-state.json")
+        case "dismiss_conflict_dialog":
+            dismissConflictDialog(
+                choice: params["choice"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-conflict-dismiss.json")
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -428,7 +442,15 @@ final class HarnessCommandPoller {
     /// `connector_save_focused` (D19 phase 3) — call doc.save() on the
     /// focused tab. Async; the driver waits for the result file to be
     /// non-empty.
-    private func connectorSaveFocused(to path: String) {
+    ///
+    /// D19 phase 4 — when `force == true` is passed, the connector
+    /// skips the GET-before-PATCH conflict check (used by the harness
+    /// to drive the Overwrite path without an interactive dialog).
+    /// When the connector throws `.conflictDetected`, the envelope
+    /// reports `conflictDetected: true` plus `serverUpdatedAt` instead
+    /// of the generic `error: "conflictDetected"` form — lets test
+    /// drivers branch cleanly.
+    private func connectorSaveFocused(force: Bool, to path: String) {
         try? Data().write(to: URL(fileURLWithPath: path))
         Task { @MainActor in
             let store = WorkspaceStore.shared
@@ -439,12 +461,22 @@ final class HarnessCommandPoller {
             }
             let payload: [String: Any]
             do {
-                try await doc.save()
+                try await doc.save(force: force)
                 payload = [
                     "ok": true,
                     "displayName": doc.displayName,
                     "dirty": doc.dirty,
-                    "isReadOnly": doc.isReadOnly
+                    "isReadOnly": doc.isReadOnly,
+                    "conflictDetected": false
+                ]
+            } catch ConnectorError.conflictDetected(let serverUpdatedAt) {
+                payload = [
+                    "ok": false,
+                    "conflictDetected": true,
+                    "serverUpdatedAt": ISO8601DateFormatter.fractional
+                        .string(from: serverUpdatedAt),
+                    "displayName": doc.displayName,
+                    "dirty": doc.dirty
                 ]
             } catch let serr as EditorDocument.SaveError {
                 payload = [
@@ -463,6 +495,62 @@ final class HarnessCommandPoller {
                 options: [.prettyPrinted, .sortedKeys]) {
                 try? data.write(to: URL(fileURLWithPath: path))
             }
+        }
+    }
+
+    /// `dump_save_state` (D19 phase 4) — emit the save-related state
+    /// the test driver needs to branch on conflict-detection scenarios.
+    /// Includes the dialog-shown flag so a driver can poll until the
+    /// modal sheet is up before issuing `dismiss_conflict_dialog`.
+    private func dumpSaveState(to path: String) {
+        let store = WorkspaceStore.shared
+        guard let doc = store.tabs.focused else {
+            writeJSONError(["error": "no focused doc"], to: path)
+            return
+        }
+        let lastSeen = doc.connectorNode?.lastSeenUpdatedAt
+            .map { ISO8601DateFormatter.fractional.string(from: $0) }
+            ?? ""
+        let payload: [String: Any] = [
+            "displayName": doc.displayName,
+            "dirty": doc.dirty,
+            "isSaving": doc.isSaving,
+            "isReadOnly": doc.isReadOnly,
+            "lastSeenUpdatedAt": lastSeen,
+            "conflictDialogShown": ConflictDialogPresenter.shared.isShowing
+        ]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    /// `dismiss_conflict_dialog` (D19 phase 4) — programmatically
+    /// click the matching button on the active conflict NSAlert. Returns
+    /// `dismissed: false` if no dialog is currently showing (driver
+    /// should poll `dump_save_state` first).
+    private func dismissConflictDialog(choice: String?, resultPath: String) {
+        let parsed: ConflictDialogPresenter.Choice
+        switch (choice ?? "").lowercased() {
+        case "overwrite": parsed = .overwrite
+        case "cancel":    parsed = .cancel
+        default:
+            writeJSONError(
+                ["dismissed": false,
+                 "error": "missing or invalid choice (expected overwrite or cancel)"],
+                to: resultPath)
+            return
+        }
+        let dismissed = ConflictDialogPresenter.shared.dismiss(choice: parsed)
+        let payload: [String: Any] = [
+            "dismissed": dismissed,
+            "choice": parsed == .overwrite ? "overwrite" : "cancel"
+        ]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: resultPath))
         }
     }
 
@@ -752,7 +840,7 @@ final class HarnessCommandPoller {
                 return
             }
             do {
-                let bytes = try await connector.openFile(node)
+                let (bytes, refreshedNode) = try await connector.openFile(node)
                 let text = String(data: bytes, encoding: .utf8) ?? ""
                 await MainActor.run {
                     if connector.id == "local" {
@@ -761,14 +849,17 @@ final class HarnessCommandPoller {
                     } else {
                         // D19 phase 3 — openFromConnector derives the
                         // origin from the node and computes
-                        // isReadOnly from connector.canWrite.
+                        // isReadOnly from connector.canWrite. D19 phase 4
+                        // — refreshedNode carries `lastSeenUpdatedAt`
+                        // from the meta call so save-time conflict
+                        // detection has a baseline.
                         store.tabs.openFromConnector(
-                            content: text, node: node)
+                            content: text, node: refreshedNode)
                     }
                 }
                 Self.writeJSONErrorStatic(
                     ["ok": true,
-                     "displayName": node.name,
+                     "displayName": refreshedNode.name,
                      "byteCount": bytes.count],
                     to: resultPath)
             } catch {

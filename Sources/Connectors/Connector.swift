@@ -70,7 +70,13 @@ protocol Connector: AnyObject, Sendable {
     /// can use any field they need — PortableMindConnector parses its
     /// numeric `LlmFile.id` out of `node.id`, while LocalConnector
     /// reads `node.path` as a URL.
-    func openFile(_ node: ConnectorNode) async throws -> Data
+    ///
+    /// Returns the bytes plus a refreshed `ConnectorNode`. The refreshed
+    /// node carries any server-side metadata observed during the read
+    /// (D19 phase 4: `lastSeenUpdatedAt` for PortableMind, used as the
+    /// baseline for the conflict-detection prompt on save). LocalConnector
+    /// returns the input node unchanged.
+    func openFile(_ node: ConnectorNode) async throws -> (Data, ConnectorNode)
 
     /// Whether this connector supports writing back to `node`. Used
     /// by the editor to decide whether a tab should be editable. The

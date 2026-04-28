@@ -69,9 +69,10 @@ struct WorkspaceView: View {
         // D19 phase 3 — PM files become editable here.
         Task {
             do {
-                let bytes = try await connector.openFile(node)
+                let (bytes, refreshedNode) = try await connector.openFile(node)
                 let text = String(data: bytes, encoding: .utf8) ?? ""
-                workspace.tabs.openFromConnector(content: text, node: node)
+                workspace.tabs.openFromConnector(content: text,
+                                                 node: refreshedNode)
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Couldn't open \(node.name)"

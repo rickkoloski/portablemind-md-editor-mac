@@ -98,12 +98,34 @@ final class PortableMindConnector: Connector {
 
     func childrenSync(of path: String?) -> [ConnectorNode]? { nil }
 
-    func openFile(_ node: ConnectorNode) async throws -> Data {
+    func openFile(_ node: ConnectorNode) async throws -> (Data, ConnectorNode) {
         guard node.kind == .file else {
             throw ConnectorError.unsupported("openFile called on directory node")
         }
         let fileID = try Self.fileID(from: node, connectorID: id)
-        return try await api.fetchFileContent(fileID: fileID)
+        // Two-step like fetchFileContent, but expose the meta's
+        // updated_at so the refreshed node carries the freshness baseline
+        // for D19 phase 4 conflict detection.
+        let meta = try await api.fetchFileMeta(fileID: fileID)
+        guard let urlString = meta.url, let url = URL(string: urlString) else {
+            throw ConnectorError.server(
+                status: 200, message: "llm_files/\(fileID): missing url")
+        }
+        let bytes = try await api.fetchSignedBlob(url: url)
+        let updatedAt = meta.updated_at.flatMap(
+            ISO8601DateFormatter.fractional.date(from:))
+        let refreshed = ConnectorNode(
+            id: node.id,
+            name: node.name,
+            path: node.path,
+            kind: node.kind,
+            fileCount: node.fileCount,
+            tenant: node.tenant,
+            isSupported: node.isSupported,
+            lastSeenUpdatedAt: updatedAt ?? node.lastSeenUpdatedAt,
+            connector: self
+        )
+        return (bytes, refreshed)
     }
 
     /// D19 phase 3 — PortableMind supports write on any `.file` node.
@@ -123,8 +145,14 @@ final class PortableMindConnector: Connector {
     /// `lastSeenUpdatedAt` so callers can pick it up for phase 4's
     /// conflict prompt.
     ///
-    /// `force` is reserved for phase 4 (skip the GET-before-PATCH
-    /// optimistic check). Phase 3 ignores it; phase 4 wires it up.
+    /// D19 phase 4 — when `force == false` and the node carries a
+    /// `lastSeenUpdatedAt` baseline, GET the current meta first and
+    /// compare. If the server's `updated_at` is newer, throw
+    /// `.conflictDetected` so the menu handler can prompt the user
+    /// (Q2 decision: server-wins warning). Graceful fallback: if the
+    /// meta GET fails with a network-class error, fall through to the
+    /// PATCH (last-writer-wins) — flaky network shouldn't block saves.
+    /// Auth/server failures on the meta GET propagate normally.
     func saveFile(_ node: ConnectorNode,
                   bytes: Data,
                   force: Bool) async throws -> ConnectorNode {
@@ -132,6 +160,29 @@ final class PortableMindConnector: Connector {
             throw ConnectorError.unsupported("saveFile called on directory node")
         }
         let fileID = try Self.fileID(from: node, connectorID: id)
+
+        // Phase 4 conflict check.
+        if !force, let lastSeen = node.lastSeenUpdatedAt {
+            var serverUpdatedAt: Date? = nil
+            do {
+                let meta = try await api.fetchFileMeta(fileID: fileID)
+                serverUpdatedAt = meta.updated_at.flatMap(
+                    ISO8601DateFormatter.fractional.date(from:))
+            } catch ConnectorError.network {
+                // Graceful fallback — proceed with PATCH.
+                serverUpdatedAt = nil
+            }
+            // Compare with millisecond tolerance — the server stores
+            // sub-millisecond precision but we round-trip through
+            // ISO8601 strings. A tolerance below the timestamp's
+            // resolution wouldn't false-positive on identical writes.
+            if let server = serverUpdatedAt,
+               server.timeIntervalSince(lastSeen) > 0.001 {
+                throw ConnectorError.conflictDetected(
+                    serverUpdatedAt: server)
+            }
+        }
+
         let updated = try await api.updateFile(
             fileID: fileID,
             bytes: bytes,

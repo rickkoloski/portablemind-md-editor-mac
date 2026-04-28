@@ -225,8 +225,11 @@ final class PortableMindAPIClient {
     }
 
     /// GET a signed ActiveStorage blob URL — no auth header (the URL
-    /// already carries the signature).
-    private func fetchSignedBlob(url: URL) async throws -> Data {
+    /// already carries the signature). Module-internal so
+    /// PortableMindConnector can drive open-time meta + blob fetches as
+    /// two visible steps when it needs the meta's updated_at (D19 phase
+    /// 4 conflict-detection baseline).
+    func fetchSignedBlob(url: URL) async throws -> Data {
         let request = URLRequest(url: url)
         let (data, response): (Data, URLResponse)
         do {

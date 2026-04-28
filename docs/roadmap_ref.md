@@ -35,6 +35,7 @@ Rough ordering of planned deliverables so that current work has context for what
 | D21 | File tree path affordances — Copy Path / Copy Relative Path on tree row context menu, root tooltip showing home-relative path, "Show Path in Tree" toggle on Local root. | ✅ Complete — 2026-04-27 |
 | D22 | Tab right-click context menu — Copy Path / Copy Relative Path on the open tab. Surfaced during D19 phase 4 dogfood when the agent-opened file's sidebar position wasn't visible. Reveal-in-Sidebar deferred to a future iteration. | ✅ Complete — 2026-04-28 |
 | D23+ | PM file management — Save As + New File (rename / move / create-at-chosen-location). Committed in D19 Q4 decision (2026-04-27); unified deliverable since rename, move, and new-file share the same connector / API surface. | Pending |
+| D24 | Responsive table column layout — content-aware proportional algorithm matching VS Code preview / browser `table-layout: auto`. Resolves i02 (320pt cap regardless of viewport). Triad approved 2026-04-28; phase 1 (spike on byTruncatingTail behavior) approach decided (offscreen / programmatic); **dev paused until after upcoming demo** per CD direction; resumes on `feature/d24-responsive-table-columns`. | Triad approved; dev paused (post-demo restart) |
 | D7+ | PortableMind integration umbrella — original placeholder. Concrete slices land as D18 (tree), D19 (save-back), D20 (connection-management), and forward (Projects-app routing, semantic integrations). | Decomposed into D18+ deliverables 2026-04-27 |
 
 

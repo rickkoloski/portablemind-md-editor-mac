@@ -283,6 +283,16 @@ final class HarnessCommandPoller {
                 choice: params["choice"] as? String,
                 resultPath: params["path"] as? String
                     ?? "/tmp/mdeditor-conflict-dismiss.json")
+        case "attempt_save_focused":
+            // Drives MdEditorApp.attemptSave's flow: connector save,
+            // on conflict -> ConflictDialogPresenter.present (sheet),
+            // on Overwrite re-save with force=true. Used by the harness
+            // because tv.keyDown doesn't fire SwiftUI keyboardShortcut
+            // bindings (menu key equivalents are dispatched at the
+            // window level), so synthesize_keypress can't drive the
+            // ⌘S menu path.
+            attemptSaveFocused(to: params["path"] as? String
+                ?? "/tmp/mdeditor-save-result.json")
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -523,6 +533,67 @@ final class HarnessCommandPoller {
             withJSONObject: payload,
             options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    /// `attempt_save_focused` (D19 phase 4) — drives the user-facing
+    /// save path including the conflict NSAlert sheet. The result
+    /// envelope is written *after* the dialog (if any) is dismissed and
+    /// the resulting save attempt completes. Test drivers poll
+    /// `dump_save_state` while waiting for the dialog to appear, then
+    /// issue `dismiss_conflict_dialog` with the desired choice.
+    private func attemptSaveFocused(to path: String) {
+        try? Data().write(to: URL(fileURLWithPath: path))
+        Task { @MainActor in
+            let store = WorkspaceStore.shared
+            guard let doc = store.tabs.focused else {
+                Self.writeJSONErrorStatic(
+                    ["ok": false, "error": "no focused doc"], to: path)
+                return
+            }
+            await Self.runAttemptSave(doc: doc, force: false, resultPath: path)
+        }
+    }
+
+    /// Mirrors MdEditorApp.attemptSave so harness drivers exercise the
+    /// same code path. Recursive on Overwrite (force=true on retry).
+    @MainActor
+    private static func runAttemptSave(doc: EditorDocument,
+                                       force: Bool,
+                                       resultPath: String) async {
+        do {
+            try await doc.save(force: force)
+            let payload: [String: Any] = [
+                "ok": true,
+                "displayName": doc.displayName,
+                "dirty": doc.dirty,
+                "isReadOnly": doc.isReadOnly,
+                "wentThroughDialog": force,
+                "conflictDetected": false
+            ]
+            writeJSONErrorStatic(payload, to: resultPath)
+        } catch ConnectorError.conflictDetected(let serverUpdatedAt) {
+            let choice = await ConflictDialogPresenter.shared.present(
+                serverUpdatedAt: serverUpdatedAt)
+            switch choice {
+            case .overwrite:
+                await runAttemptSave(doc: doc, force: true,
+                                     resultPath: resultPath)
+            case .cancel:
+                let payload: [String: Any] = [
+                    "ok": false,
+                    "userCancelled": true,
+                    "displayName": doc.displayName,
+                    "dirty": doc.dirty,
+                    "conflictDetected": true,
+                    "serverUpdatedAt": ISO8601DateFormatter.fractional
+                        .string(from: serverUpdatedAt)
+                ]
+                writeJSONErrorStatic(payload, to: resultPath)
+            }
+        } catch {
+            writeJSONErrorStatic(
+                ["ok": false, "error": "\(error)"], to: resultPath)
         }
     }
 

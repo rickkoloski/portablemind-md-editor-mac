@@ -107,5 +107,25 @@ private struct TabItemView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(AccessibilityIdentifiers.tabButton(documentID: document.id))
         .accessibilityLabel(document.displayName)
+        // D22 — tab right-click context menu. Mirrors the tree row's
+        // D21 affordances but operates on the open document, so the
+        // path is reachable without locating the file in the sidebar
+        // tree. The dogfood case: another agent opens a file via the
+        // CLI/URL surface, and we want to share its link with a third
+        // agent without hunting through the tree.
+        .contextMenu {
+            if let absolute = PathFormatting.absolutePathForCopy(document) {
+                Button("Copy Path") {
+                    PathFormatting.copyToClipboard(absolute)
+                }
+                .keyboardShortcut("c", modifiers: [.command, .option])
+            }
+            if let relative = PathFormatting.relativePathForCopy(document) {
+                Button("Copy Relative Path") {
+                    PathFormatting.copyToClipboard(relative)
+                }
+                .keyboardShortcut("c", modifiers: [.command, .option, .shift])
+            }
+        }
     }
 }

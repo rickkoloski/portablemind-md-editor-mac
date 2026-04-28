@@ -65,4 +65,54 @@ enum PathFormatting {
         pb.clearContents()
         pb.setString(string, forType: .string)
     }
+
+    // MARK: - D22 — tab context menu helpers
+
+    /// Format an open document's path for "Copy Path" from the tab
+    /// context menu. Returns nil for untitled local docs (no path to
+    /// copy yet).
+    /// - `.local` origin: home-relative `~` form when inside home,
+    ///   else full absolute path.
+    /// - `.portableMind` origin: the displayPath verbatim
+    ///   (`/projects/foo.md` style; PortableMind paths are already
+    ///   canonical relative to the connector root).
+    @MainActor
+    static func absolutePathForCopy(_ doc: EditorDocument) -> String? {
+        switch doc.origin {
+        case .local:
+            guard let url = doc.url else { return nil }
+            return displayLocalPath(url.path)
+        case .portableMind(_, _, let displayPath):
+            return displayPath
+        }
+    }
+
+    /// Format an open document's path for "Copy Relative Path".
+    /// - `.local`: relative to the active workspace root if the file
+    ///   is inside it; otherwise falls back to the absolute form (no
+    ///   sensible relative anchor).
+    /// - `.portableMind`: PM displayPath with the leading `/` stripped
+    ///   so it concatenates cleanly into agent prompts and other docs
+    ///   (matches the tree row's relative-path semantics).
+    @MainActor
+    static func relativePathForCopy(_ doc: EditorDocument) -> String? {
+        switch doc.origin {
+        case .local:
+            guard let url = doc.url else { return nil }
+            if let rootURL = WorkspaceStore.shared.rootURL {
+                let rootPath = rootURL.path
+                if url.path == rootPath { return "" }
+                let withSlash = rootPath + "/"
+                if url.path.hasPrefix(withSlash) {
+                    return String(url.path.dropFirst(withSlash.count))
+                }
+            }
+            return displayLocalPath(url.path)
+        case .portableMind(_, _, let displayPath):
+            if displayPath.hasPrefix("/") {
+                return String(displayPath.dropFirst())
+            }
+            return displayPath
+        }
+    }
 }

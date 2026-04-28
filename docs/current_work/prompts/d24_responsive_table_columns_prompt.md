@@ -55,9 +55,13 @@ Harness extensions (TEST-HARNESS, `#if DEBUG`):
 
 **Don't proceed past phase 1 without a recommendation.** If the spike comes back YELLOW or RED, stop and surface a `**Question:**` to CD with the observed behavior + proposed fallback.
 
-The spike is intentionally minimal: a NSWindow + NSTextView containing one hand-built NSTextTable with three cells (normal text, over-long URL only, mixed). Apply `byTruncatingTail` paragraph style. Resize the window. Observe.
+**Approach (decided 2026-04-28): offscreen / programmatic**. The spike is a single self-contained Swift script (`spikes/d24_table_columns/run_spike.swift`) that builds NSTextStorage + NSLayoutManager + NSTextContainer directly — no NSWindow, no NSTextView host. Lays out at three container widths (600pt / 400pt / 280pt); emits per-line fragment info to stdout; renders PNG snapshots via `NSImage` lockFocus to `spikes/d24_table_columns/results/`. Zero focus impact (important — the spike lands alongside an upcoming demo where focus-stealing protocols matter more than usual).
 
-GREEN means all four claimed behaviors hold (spec §Algorithm Pass 3 + §Decision Q8). YELLOW means most hold but with a documented gotcha. RED means falling back to a custom NSLayoutManager hook (estimated +1 phase).
+The cells: normal multi-paragraph text, over-long URL only, mixed text + URL. Apply `byTruncatingTail` paragraph style. Read the per-line fragment info AND the PNGs — both should agree on the four claimed behaviors.
+
+**Fallback if offscreen results don't match a real NSTextView**: a visual spike with `NSApp.setActivationPolicy(.accessory)` so the window doesn't grab focus from MdEditor or whatever else CD has frontmost. Cross-check once against the production editor on a hand-rolled fixture doc; if offscreen and in-app results diverge, switch to the visual spike with the accessory-mode policy.
+
+GREEN means all four claimed behaviors hold (spec §Algorithm Pass 3 + §Decision Q8). YELLOW means most hold but with a documented gotcha. RED means falling back to a custom NSLayoutManager hook (estimated +1 phase) instead of relying on byTruncatingTail.
 
 ### Phase 2 — Measurement + cache
 

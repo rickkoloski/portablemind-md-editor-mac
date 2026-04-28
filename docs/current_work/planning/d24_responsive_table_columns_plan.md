@@ -44,16 +44,18 @@ D24 continues the harness-first verification approach established in D18 plan §
 
 If the behavior matches: proceed to phase 2 with confidence. If it differs: fall back to the documented plan B (custom layout-manager hook).
 
+**Approach (decided 2026-04-28):** **offscreen / programmatic** spike. No NSWindow, no NSTextView host. Build NSTextStorage + NSLayoutManager + NSTextContainer directly, force layout at three widths (wide / medium / narrow), render to PNG via `NSImage` lockFocus, dump per-line fragment info to stdout. Zero focus impact — important because the spike will land alongside an upcoming demo where `feedback_focus_stealing.md` matters more than usual. The small risk: TK1 NSTextTable cell layout might differ subtly between "raw NSLayoutManager" and "embedded in a real NSTextView". If the offscreen results don't match the visual reality (cross-checked once against the production editor on a hand-rolled fixture doc), fall back to a visual spike with `NSApp.setActivationPolicy(.accessory)` so it doesn't grab focus.
+
 **Files created:**
 
-- `spikes/d24_table_columns/SpikeApp.swift` — minimal NSWindow + NSTextView with a single hand-built NSTextTable. Three test cells (normal multi-paragraph text, over-long URL only, mixed text + over-long URL). `byTruncatingTail` paragraph style applied to all cells. Resize the window manually; observe.
-- `spikes/d24_table_columns/README.md` — spike scope, what to look for, GREEN/YELLOW/RED criteria.
+- `spikes/d24_table_columns/run_spike.swift` — single self-contained Swift script. Run via `swift run_spike.swift`. Builds the table layout for three test cells (normal multi-paragraph text, over-long URL only, mixed text + over-long URL); lays out at 600pt / 400pt / 280pt container widths; emits per-line fragment info to stdout AND renders PNG snapshots to `spikes/d24_table_columns/results/`.
+- `spikes/d24_table_columns/README.md` — spike scope, what to look for, GREEN/YELLOW/RED criteria + observed behavior + recommendation.
 
 **DOD:**
 
-- Spike app builds and runs.
-- All four expected behaviors verified manually with a screenshot pasted into the spike README.
-- Recommendation in spike README: **GREEN** (proceed with byTruncatingTail), **YELLOW** (proceed but with a documented gotcha), or **RED** (fall back to custom layout-manager hook).
+- Spike script builds and runs.
+- All four expected behaviors observed in either the per-line fragment info or the PNG snapshots (or both), pasted into the spike README.
+- Recommendation in spike README: **GREEN** (proceed with byTruncatingTail), **YELLOW** (proceed but with a documented gotcha), or **RED** (fall back to custom NSLayoutManager hook).
 
 **Commit:** `D24 phase 1 — spike: validate byTruncatingTail multi-line behavior on TK1 cells`
 

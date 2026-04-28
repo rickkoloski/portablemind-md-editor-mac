@@ -78,6 +78,7 @@
 		DD8BABA54508A0F3656EA66B /* HarnessActiveSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5AC25DB3CFE00FB09F46C3B /* HarnessActiveSink.swift */; };
 		E35DBCA24ED08AEA0EFF2087 /* PortableMindEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E608C92087DA2ED99857040 /* PortableMindEnvironment.swift */; };
 		EE45FB6087116ECA1BB182BE /* MutationHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C80DE85975844E9F6898D021 /* MutationHelpers.swift */; };
+		F0FDEB1AEBCE5EEAED94B78D /* PathFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF830CF12690BAE493D6FA8 /* PathFormatting.swift */; };
 		F8421E4664863007B6773E37 /* EditorDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D086F044F795F5BE8F33D4 /* EditorDocument.swift */; };
 /* End PBXBuildFile section */
 
@@ -123,6 +124,7 @@
 		736D7D2A74FC7C773CBEDC6B /* TabStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabStore.swift; sourceTree = "<group>"; };
 		73B7A515AA3E6A1A05AE26A8 /* Connector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connector.swift; sourceTree = "<group>"; };
 		770FBECB95BF5127256B338C /* EditorDispatcherRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorDispatcherRegistry.swift; sourceTree = "<group>"; };
+		7AF830CF12690BAE493D6FA8 /* PathFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathFormatting.swift; sourceTree = "<group>"; };
 		7BE760CB7674EC82B2EEE54F /* CursorLineTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorLineTracker.swift; sourceTree = "<group>"; };
 		7E608C92087DA2ED99857040 /* PortableMindEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortableMindEnvironment.swift; sourceTree = "<group>"; };
 		7EF3F965AD0AEC856FA38062 /* HarnessCommandPoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessCommandPoller.swift; sourceTree = "<group>"; };
@@ -331,6 +333,7 @@
 				2E7FB5222CF0C6296CDC4B2F /* ConnectorTreeView.swift */,
 				EF23193AD08481F5D8FBF992 /* ConnectorTreeViewModel.swift */,
 				A03D8CF6CE596C7EA09CBC7D /* EmptyEditorView.swift */,
+				7AF830CF12690BAE493D6FA8 /* PathFormatting.swift */,
 				A8F1E5A7D9544B0E06705EBD /* TabBarView.swift */,
 				A5CD85D99BA4A020FC41BBAF /* WorkspaceView.swift */,
 			);
@@ -605,6 +608,7 @@
 				60C87C7A915342EF5D456809 /* NumberedListMutation.swift in Sources */,
 				534AD94B3720889CA88F77EA /* OpenFileCommand.swift in Sources */,
 				889FAC8100CC57FC80459DF7 /* OpenFolderCommand.swift in Sources */,
+				F0FDEB1AEBCE5EEAED94B78D /* PathFormatting.swift in Sources */,
 				988B12F2F02C37FD3D9C8E83 /* PortableMindAPIClient.swift in Sources */,
 				38EB69A8B24FF9E4421EB31D /* PortableMindAPITypes.swift in Sources */,
 				02BDD53DDE0E484F5F578D49 /* PortableMindConnector.swift in Sources */,

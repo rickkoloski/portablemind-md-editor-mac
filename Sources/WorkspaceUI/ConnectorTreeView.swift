@@ -106,6 +106,23 @@ private struct ConnectorRowView: View {
         .accessibilityIdentifier(
             AccessibilityIdentifiers.folderTreeRow(id: node.id))
         .accessibilityHint(node.isSupported ? "" : "file type not supported")
+        .contextMenu {
+            // D21 — Copy Path / Copy Relative Path. VS Code-style.
+            // Same handles for any tree row: local files/folders and
+            // PortableMind file/folder nodes. Path semantics differ
+            // by connector — see PathFormatting.
+            Button("Copy Path") {
+                PathFormatting.copyToClipboard(
+                    PathFormatting.absolutePathForCopy(node))
+            }
+            .keyboardShortcut("c", modifiers: [.command, .option])
+
+            Button("Copy Relative Path") {
+                PathFormatting.copyToClipboard(
+                    PathFormatting.relativePathForCopy(node))
+            }
+            .keyboardShortcut("c", modifiers: [.command, .option, .shift])
+        }
     }
 
     @ViewBuilder

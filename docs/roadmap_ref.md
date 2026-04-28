@@ -40,6 +40,7 @@ Rough ordering of planned deliverables so that current work has context for what
 
 Items on the table but not yet ordered. Most will slot into D6+ or later.
 
+- File tree context menu — extend D21's row context menu with Delete (and adjacent ops: Rename, New File, New Folder, Reveal in Finder)
 - Folder tree / sidebar navigation
 - Outline / heading navigator panel
 - Submit / Handoff primitive (standalone mode — git commit / sidecar file)

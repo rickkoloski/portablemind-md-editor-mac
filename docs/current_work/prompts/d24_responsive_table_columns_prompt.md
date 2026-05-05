@@ -1,6 +1,8 @@
 # D24 Prompt — Responsive table column layout
 
-You are working on `~/src/apps/md-editor-mac` on branch `feature/d24-responsive-table-columns`. Your job is to replace the existing 320pt-cap heuristic on markdown table column widths with a content-aware proportional layout that mirrors VS Code preview / browser `table-layout: auto` semantics — narrow columns hug their content, long-text columns share remaining viewport space proportionally, over-long unbreakable tokens ellipsize rather than push the table past the viewport.
+You are working on `~/src/apps/md-editor-mac` on branch `feature/d24-responsive-table-columns`. Your job is to replace the existing 320pt-cap heuristic on markdown table column widths with a content-aware proportional layout that mirrors VS Code preview / browser `table-layout: auto` semantics — narrow columns hug their content, long-text columns share remaining viewport space proportionally, over-long unbreakable tokens word-wrap at any internal break opportunities (URL hyphens, slashes, dots) and char-wrap as a lossless last resort, never pushing the table past the viewport.
+
+**Phase 1 spike done (2026-05-04, commit `1a90492`).** The spec's original `byTruncatingTail` plan was empirically falsified — it's a single-line truncation mode under TK1, not a multi-line wrap mode. **Pivoted to `byWordWrapping`** per Q9 (CD-approved). Q8's `natural_width(col) ≤ viewport_width` cap stands. Original 6-phase plan stands; no +1 phase fallback.
 
 This resolves backlog item **i02** (Markdown table column widths capped at 320pt regardless of viewport). The fix lifts every markdown table in the editor — spec docs, decision logs, comparison tables, all dogfooded daily.
 
@@ -8,13 +10,14 @@ This resolves backlog item **i02** (Markdown table column widths capped at 320pt
 
 ## Read first (in this order)
 
-1. `docs/current_work/specs/d24_responsive_table_columns_spec.md` — the contract. Decision log Q1-Q8 captures all eight scope answers (CD-approved 2026-04-28). **Q8 explicitly revises Q2** — read both; Q8 is the live behavior.
-2. `docs/current_work/planning/d24_responsive_table_columns_plan.md` — six phases with DOD per phase + harness action additions. Phase 1 is a spike that gates Q8.
-3. `docs/issues_backlog.md` — i02 is the entry this deliverable resolves; phase 6 marks it Fixed.
-4. `docs/chronicle_by_concept/05_tables/_index.md` — the current TK1 table implementation (D17 era). The implementation surface is `Sources/Editor/Renderer/Tables/`.
-5. `docs/chronicle_by_concept/04_tables_tk2_retired/_index.md` — **historical only.** Read only if a question arises about why we don't reach for TK2 fragment math; this code is retired.
-6. `docs/engineering-standards_ref.md` — §3.1 (branching: `feature/d##-*`), §3 (D17 onwards: `LiveRenderTextView` uses `layoutManager`, NOT `textLayoutManager` — runtime trip-wire asserts).
-7. Memory pointers (`~/.claude/projects/-Users-richardkoloski-src/memory/`):
+1. `docs/current_work/specs/d24_responsive_table_columns_spec.md` — the contract. Decision log Q1-Q9 captures all nine scope answers. **Read order: Q2 → Q8 (revises Q2) → Q9 (revises Q8's truncation half).** Q9 is the live cell line-break behavior; Q8's `natural_width` cap remains live.
+2. `spikes/d24_table_columns/README.md` — phase 1 result that drove Q9. Read for the empirical evidence.
+3. `docs/current_work/planning/d24_responsive_table_columns_plan.md` — six phases with DOD per phase + harness action additions. Phase 1 is DONE (commit `1a90492`).
+4. `docs/issues_backlog.md` — i02 is the entry this deliverable resolves; phase 6 marks it Fixed.
+5. `docs/chronicle_by_concept/05_tables/_index.md` — the current TK1 table implementation (D17 era). The implementation surface is `Sources/Editor/Renderer/Tables/`.
+6. `docs/chronicle_by_concept/04_tables_tk2_retired/_index.md` — **historical only.** Read only if a question arises about why we don't reach for TK2 fragment math; this code is retired.
+7. `docs/engineering-standards_ref.md` — §3.1 (branching: `feature/d##-*`), §3 (D17 onwards: `LiveRenderTextView` uses `layoutManager`, NOT `textLayoutManager` — runtime trip-wire asserts).
+8. Memory pointers (`~/.claude/projects/-Users-richardkoloski-src/memory/`):
    - `feedback_no_shortcuts_pre_users.md` — pre-user products build the hard thing right.
    - `md_editor_dogfood_workflow.md` — `**Question:**` / `**Decision:**` / `**Bug:**` / `**Assumption:**` markers (own line, greppable).
    - `feedback_focus_stealing.md` — ask before app launches, modals, anything that grabs focus.
@@ -51,17 +54,14 @@ Harness extensions (TEST-HARNESS, `#if DEBUG`):
 
 ## Phase-by-phase guidance
 
-### Phase 1 — Spike
+### Phase 1 — Spike ✅ DONE
 
-**Don't proceed past phase 1 without a recommendation.** If the spike comes back YELLOW or RED, stop and surface a `**Question:**` to CD with the observed behavior + proposed fallback.
+**Result (2026-05-04, commit `1a90492`):** RED on Q8 — `byTruncatingTail` is a single-line truncation mode under TK1 NSLayoutManager and never produces multi-line wrap. The phase 1 control case (`byWordWrapping`) showed clean multi-line wrap on every test cell at every width tested. **Pivot to `byWordWrapping` per Q9** (CD-approved). Original 6-phase plan stands; no +1 phase fallback.
 
-**Approach (decided 2026-04-28): offscreen / programmatic**. The spike is a single self-contained Swift script (`spikes/d24_table_columns/run_spike.swift`) that builds NSTextStorage + NSLayoutManager + NSTextContainer directly — no NSWindow, no NSTextView host. Lays out at three container widths (600pt / 400pt / 280pt); emits per-line fragment info to stdout; renders PNG snapshots via `NSImage` lockFocus to `spikes/d24_table_columns/results/`. Zero focus impact (important — the spike lands alongside an upcoming demo where focus-stealing protocols matter more than usual).
-
-The cells: normal multi-paragraph text, over-long URL only, mixed text + URL. Apply `byTruncatingTail` paragraph style. Read the per-line fragment info AND the PNGs — both should agree on the four claimed behaviors.
-
-**Fallback if offscreen results don't match a real NSTextView**: a visual spike with `NSApp.setActivationPolicy(.accessory)` so the window doesn't grab focus from MdEditor or whatever else CD has frontmost. Cross-check once against the production editor on a hand-rolled fixture doc; if offscreen and in-app results diverge, switch to the visual spike with the accessory-mode policy.
-
-GREEN means all four claimed behaviors hold (spec §Algorithm Pass 3 + §Decision Q8). YELLOW means most hold but with a documented gotcha. RED means falling back to a custom NSLayoutManager hook (estimated +1 phase) instead of relying on byTruncatingTail.
+Read the spike artifacts before phase 2:
+- `spikes/d24_table_columns/README.md` — recommendation + observations.
+- `spikes/d24_table_columns/results/run.log` — per-line fragment dump, the authoritative evidence.
+- `spikes/d24_table_columns/run_spike.swift` — re-runnable via `swift run_spike.swift` from that directory if you want to reproduce.
 
 ### Phase 2 — Measurement + cache
 
@@ -83,7 +83,7 @@ XCTest coverage is the verification surface — no harness needed for pure-funct
 
 This is the visible milestone. The user sees the responsive layout for the first time after phase 4 lands.
 
-Replace the 320pt cap. Read viewport width from `NSTextContainer.containerSize.width` — see plan risk 4 if this turns out to be wrong. Set per-cell paragraph style `lineBreakMode = .byTruncatingTail` on every cell.
+Replace the 320pt cap. Read viewport width from `NSTextContainer.containerSize.width` — see plan risk 4 if this turns out to be wrong. Set per-cell paragraph style `lineBreakMode = .byWordWrapping` on every cell (Q9 — supersedes Q8's truncation half). TextKit's last-resort char-wrap covers pathological no-punctuation tokens losslessly.
 
 The Decision-log table in `chronicle_by_concept/06_persistence_and_connectors/specs/d19_pm_save_back_spec.md` is the canonical visual smoke test — it's a 4-column table with one long-text column that's been demonstrating the i02 problem for weeks. Open it after phase 4 and confirm: "Decision" column is now wide enough that text doesn't wrap aggressively when the window is wide.
 

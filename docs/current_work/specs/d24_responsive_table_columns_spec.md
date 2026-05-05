@@ -1,6 +1,6 @@
 # D24 — Responsive table column layout
 
-**Status:** APPROVED FRAME — all seven open questions resolved up front (see Decision log, 2026-04-28). Plan + prompt next.
+**Status:** APPROVED FRAME — eight original questions resolved 2026-04-28. **Q9 added 2026-05-04** after phase 1 spike: cell line-break mode pivots from `byTruncatingTail` to `byWordWrapping` (Q9 supersedes Q8's truncation half — Q8's `natural_width` cap stands).
 
 **Trace:**
 - `docs/vision.md` — Principle 1 (Word/Docs-familiar authoring). Modern editors auto-fit table columns to viewport; ours hard-caps at 320pt regardless of window width, which CD experiences as cramped meaty columns sitting next to wide whitespace.
@@ -83,7 +83,12 @@ The "lock-in pass" runs until convergence (typically 1-2 iterations even for tab
 
 Set `NSTextTableBlock` `width` per column. TK1 honors per-block widths in absolute points (not percent) on macOS; the existing `setValue(_:type:for:)` API takes `NSTextBlock.ValueType.absoluteValueType`. No custom layout passes needed beyond what TK1 already does on the storage edit + container resize cycles.
 
-Cell content gets `NSParagraphStyle.lineBreakMode = .byTruncatingTail` (Decision Q8). With multi-line cells (no `numberOfLines` cap), TextKit's behavior is: wrap at word boundaries normally; push an over-long unbreakable token to its own line; if even on its own line the token can't fit, ellipsize the trailing portion (`https://very-long-…`). Subsequent paragraph content below the over-long token continues to wrap normally.
+Cell content gets `NSParagraphStyle.lineBreakMode = .byWordWrapping` (Decision Q9 — supersedes Q8's `byTruncatingTail` choice, which was empirically falsified by the phase 1 spike: TK1 `byTruncatingTail` is a single-line truncation mode and never produces multi-line wrap). With multi-line cells (no `numberOfLines` cap) and `byWordWrapping`, TextKit:
+- Wraps at word boundaries normally for ordinary prose.
+- Wraps at internal break opportunities (`-`, `/`, `.`, etc.) for tokens like URLs and paths — common in our markdown content.
+- Falls back to character-level wrap for pathological tokens with **zero** break opportunities (a base64 blob, a single very long word with no punctuation).
+
+The fallback is **lossless** — every character remains visible, copyable, and selectable. No ellipsis substitution; no info loss. Q8's `natural_width(col) ≤ viewport_width` cap still prevents the column from claiming more space than the viewport could ever provide; combined with `byWordWrapping`, the cell is guaranteed to fit horizontally in its column at any width.
 
 ---
 
@@ -107,7 +112,10 @@ D8.1's source-reveal mechanism was retired by D17; in-place TK1 cell editing rep
 
 ## Edge cases
 
-- **Single super-long unbreakable token** in a column (a long URL with no whitespace, base64 blob, etc.) — `natural_width(col)` is **capped at `viewport_width`** (Decision Q8), so the column never claims more than the viewport can give. The cell's paragraph style uses `byTruncatingTail`, so the over-long token gets its own line; if even that line is too narrow, the trailing portion ellipsizes. The table never extends past the viewport's right edge. (Revises Decision Q2.)
+- **Single super-long unbreakable token** in a column (a long URL, a base64 blob, etc.) — `natural_width(col)` is **capped at `viewport_width`** (Decision Q8), so the column never claims more than the viewport can give. The cell's paragraph style uses `byWordWrapping` (Decision Q9), so:
+  - URLs and paths (which contain `-`, `/`, `.`) wrap cleanly at those break opportunities — verified in the phase 1 spike.
+  - A truly pathological token with no break opportunities at all (a contiguous base64 blob with no punctuation) falls through to TextKit's char-wrap last resort. The cell becomes multi-line with the token wrapping mid-character; visually less polished than ellipsis but **lossless** — all characters remain visible, copyable, selectable.
+  The table never extends past the viewport's right edge. (Revises Q2 via Q8; revises Q8's truncation half via Q9.)
 - **Many narrow columns + one wide column** — common in our docs. The lock-in pass handles this in one iteration: narrow columns lock first, the wide column gets the remainder.
 - **All columns flex** (no narrow ones) — the lock-in pass finds no candidates to lock, falls through to proportional distribution across all columns. Behaves identically to a uniform `table-layout: fixed` only if all natural widths happen to be equal.
 - **Empty table** — degenerate; preserve current TK1 default (single empty row, equal-width columns).
@@ -160,7 +168,8 @@ A 10-row × 4-col table with paragraph-length descriptions measures in single-di
 | 2026-04-28 | **Q5 — Header vs body rows:** same algorithm, no special-casing for the header. The header participates in `natural_width` measurement like any other row. | RAK |
 | 2026-04-28 | **Q6 — Single-line-cell preference:** prefer single-line until forced to wrap. When `total_natural ≤ viewport_width`, every column locks to its natural width — no wrapping anywhere. The proportional distribution kicks in only when the viewport can't accommodate everyone's natural width. Matches VS Code; matches reader expectation that "wider window means less wrap, not just bigger gaps." | RAK |
 | 2026-04-28 | **Q7 — Caching:** measure-cache keyed on `(table_anchor_range, content_hash_of_cells)`. Pass 1 (`natural_width` measurement) is cached; Pass 2+3 (distribute + apply) re-run on container-width change. Storage edits invalidate the affected table's cache; nothing else does. | RAK |
-| 2026-04-28 | **Q8 — Super-long-token handling (revises Q2):** instead of allowing a column with a single super-long token to claim its full natural width and force the table past the viewport's right edge, **cap `natural_width(col)` at `viewport_width`** and use `NSLineBreakMode.byTruncatingTail` on cell paragraph style. TextKit's out-of-the-box behavior with no `numberOfLines` cap is: wrap at word boundaries normally; over-long unbreakable tokens get pushed to their own line; if even on their own line the token can't fit, the trailing portion ellipsizes. The table never extends past the viewport. Removes the "table-extends-past-viewport" branch from Pass 2 — algorithm gets simpler. | RAK |
+| 2026-04-28 | **Q8 — Super-long-token handling (revises Q2):** instead of allowing a column with a single super-long token to claim its full natural width and force the table past the viewport's right edge, **cap `natural_width(col)` at `viewport_width`** and use `NSLineBreakMode.byTruncatingTail` on cell paragraph style. TextKit's out-of-the-box behavior with no `numberOfLines` cap is: wrap at word boundaries normally; over-long unbreakable tokens get pushed to their own line; if even on their own line the token can't fit, the trailing portion ellipsizes. The table never extends past the viewport. Removes the "table-extends-past-viewport" branch from Pass 2 — algorithm gets simpler. **Q8's truncation-mode half was empirically falsified by the phase 1 spike (2026-05-04) — see Q9.** Q8's `natural_width` cap stands. | RAK |
+| 2026-05-04 | **Q9 — Cell line-break mode (revises Q8 truncation half):** the phase 1 spike (`spikes/d24_table_columns/`, commit `1a90492`) showed that `byTruncatingTail` is a single-line truncation mode under TK1 NSLayoutManager — it flattens the entire content to one line and ellipsizes on overflow at every container width tested, regardless of container height. The "wrap normally; push over-long tokens to own line; ellipsize trailing portion" behavior Q8 imagined does not exist as a TK1 paragraph-style flag. **Pivot to `lineBreakMode = .byWordWrapping`.** Real markdown URL/path content has soft break opportunities (`-`, `/`, `.`) and wraps cleanly under wordWrap (verified). Pathological no-punctuation tokens fall through to TextKit's char-wrap last resort — multi-line, mid-character break, but **lossless** (no ellipsis substitution, all chars remain visible/copyable/selectable). Q8's `natural_width(col) ≤ viewport_width` cap still ensures columns never extend past viewport. Avoids the +1-phase RED fallback (custom NSLayoutManager hook) the original spec planned. | RAK |
 
 ---
 
@@ -176,4 +185,4 @@ A 10-row × 4-col table with paragraph-length descriptions measures in single-di
 
 5. **Test fixture.** A sample markdown doc with the four canonical layouts (Decision log style, narrow-status, all-flex, single-super-long-token) lives in `spikes/` or similar — referenced by the manual test plan. Author it as part of phase 1.
 
-6. **Verify `byTruncatingTail` behavior on multi-line cells (Q8).** The spec claims TextKit with `lineBreakMode = .byTruncatingTail` and no `numberOfLines` cap will wrap at word boundaries normally, push over-long tokens to their own line, and ellipsize only when an unbreakable token can't fit on a single line. Apple's NSLineBreakMode docs are imprecise about the multi-line case; phase 1 must validate this in a small spike before the algorithm commits to it. **Fallback if behavior differs:** explicit per-cell truncation via a custom NSLayoutManager hook that detects mid-token line breaks.
+6. ~~**Verify `byTruncatingTail` behavior on multi-line cells (Q8).**~~ **Resolved 2026-05-04** by phase 1 spike (`spikes/d24_table_columns/`, commit `1a90492`). Q8's claim was empirically falsified — `byTruncatingTail` is a single-line truncation mode under TK1 NSLayoutManager. Pivot to `byWordWrapping` per Q9; the originally planned +1-phase fallback (custom NSLayoutManager hook) is no longer needed.

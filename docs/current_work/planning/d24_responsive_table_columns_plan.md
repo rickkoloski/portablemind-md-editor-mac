@@ -3,21 +3,22 @@
 **Spec:** `docs/current_work/specs/d24_responsive_table_columns_spec.md`
 **Created:** 2026-04-28
 **Branch:** `feature/d24-responsive-table-columns`
+**Phase 1 outcome (2026-05-04):** spike falsified Q8's `byTruncatingTail` claim; pivot to `byWordWrapping` per Q9. Phase 4 line-break-mode constant changes; everything else stands. **No +1 phase needed.**
 
 ---
 
 ## 0. Approach
 
-Six phases. Phase 1 is a spike (gates the algorithm on TextKit behavior we claim but haven't verified). Phases 2-5 implement the algorithm bottom-up: measure → distribute → apply → reflow. Phase 6 closes the deliverable with manual test plan + COMPLETE + roadmap.
+Six phases. Phase 1 was a spike (gated the algorithm on TextKit behavior the spec claimed but hadn't verified — see phase 1 result below). Phases 2-5 implement the algorithm bottom-up: measure → distribute → apply → reflow. Phase 6 closes the deliverable with manual test plan + COMPLETE + roadmap.
 
-1. **Spike: validate `byTruncatingTail` multi-line behavior.** Bounded; gates Q8.
+1. **Spike: validate `byTruncatingTail` multi-line behavior.** ✅ DONE (commit `1a90492`). Result: RED on Q8 — pivot to `byWordWrapping` (Q9). See spike README.
 2. **`natural_width` measurement + cache.** Pass 1 implementation + cache invalidation infrastructure.
 3. **Distribution algorithm.** Pass 2 — lock-in + proportional. Pure function; unit-testable.
-4. **Apply to `NSTextTable` + paragraph styles.** Pass 3 — wire computed widths into the existing TK1 table builder; set cell line-break mode.
+4. **Apply to `NSTextTable` + paragraph styles.** Pass 3 — wire computed widths into the existing TK1 table builder; set cell line-break mode (**`byWordWrapping` per Q9**).
 5. **Resize debounce + reflow triggers.** Window-resize handling (Q3 decision).
 6. **Manual test plan + COMPLETE + roadmap.**
 
-Each phase ends in a commit. Stop and surface a `**Question:**` if a phase reveals scope drift (e.g., the spike contradicts Q8).
+Each phase ends in a commit. Stop and surface a `**Question:**` if a phase reveals scope drift.
 
 ---
 
@@ -34,30 +35,20 @@ D24 continues the harness-first verification approach established in D18 plan §
 
 ---
 
-## Phase 1 — Spike: validate `byTruncatingTail` multi-line behavior
+## Phase 1 — Spike: validate `byTruncatingTail` multi-line behavior ✅ DONE
 
-**Goal:** Validate Q8's claim that `NSParagraphStyle.lineBreakMode = .byTruncatingTail` on a TK1 NSTextTable cell with no `numberOfLines` cap produces:
-- Word-wrap at boundaries normally for ordinary text
-- Over-long unbreakable tokens pushed to their own line
-- Ellipsis on the over-long-token line if it still doesn't fit
-- Subsequent paragraph content below continues to wrap normally
+**Result (2026-05-04):** **RED on Q8** — `byTruncatingTail` flattens content to a single line under TK1 NSLayoutManager at every width tested (600/400/280pt), regardless of container height. The "wrap normally; push over-long token to its own line; ellipsize trailing portion" behavior the spec claimed does not exist as a TK1 paragraph-style flag.
 
-If the behavior matches: proceed to phase 2 with confidence. If it differs: fall back to the documented plan B (custom layout-manager hook).
+**Pivot adopted:** use `byWordWrapping` directly. Real markdown URL/path content has soft break opportunities (`-`, `/`, `.`) and wraps cleanly. Pathological no-punctuation tokens fall through to TextKit's char-wrap last resort — multi-line, mid-character break, lossless. Q8's `natural_width(col) ≤ viewport_width` cap still ensures the column never claims more space than the viewport. The +1-phase fallback originally planned (custom NSLayoutManager hook) is **not needed**.
 
-**Approach (decided 2026-04-28):** **offscreen / programmatic** spike. No NSWindow, no NSTextView host. Build NSTextStorage + NSLayoutManager + NSTextContainer directly, force layout at three widths (wide / medium / narrow), render to PNG via `NSImage` lockFocus, dump per-line fragment info to stdout. Zero focus impact — important because the spike will land alongside an upcoming demo where `feedback_focus_stealing.md` matters more than usual. The small risk: TK1 NSTextTable cell layout might differ subtly between "raw NSLayoutManager" and "embedded in a real NSTextView". If the offscreen results don't match the visual reality (cross-checked once against the production editor on a hand-rolled fixture doc), fall back to a visual spike with `NSApp.setActivationPolicy(.accessory)` so it doesn't grab focus.
+CD-approved 2026-05-04. Spec updated with Q9; plan phase 4 updated to set `byWordWrapping`. Original 6-phase plan stands.
 
-**Files created:**
+**Artifacts:**
+- `spikes/d24_table_columns/run_spike.swift` — single self-contained Swift script. Re-run via `swift run_spike.swift`.
+- `spikes/d24_table_columns/results/run.log` — per-line fragment dump for all (mode × cell × width) combinations.
+- `spikes/d24_table_columns/README.md` — scope, observations, recommendation.
 
-- `spikes/d24_table_columns/run_spike.swift` — single self-contained Swift script. Run via `swift run_spike.swift`. Builds the table layout for three test cells (normal multi-paragraph text, over-long URL only, mixed text + over-long URL); lays out at 600pt / 400pt / 280pt container widths; emits per-line fragment info to stdout AND renders PNG snapshots to `spikes/d24_table_columns/results/`.
-- `spikes/d24_table_columns/README.md` — spike scope, what to look for, GREEN/YELLOW/RED criteria + observed behavior + recommendation.
-
-**DOD:**
-
-- Spike script builds and runs.
-- All four expected behaviors observed in either the per-line fragment info or the PNG snapshots (or both), pasted into the spike README.
-- Recommendation in spike README: **GREEN** (proceed with byTruncatingTail), **YELLOW** (proceed but with a documented gotcha), or **RED** (fall back to custom NSLayoutManager hook).
-
-**Commit:** `D24 phase 1 — spike: validate byTruncatingTail multi-line behavior on TK1 cells`
+**Commit:** `1a90492` — D24 phase 1 — spike: validate byTruncatingTail multi-line behavior on TK1 cells.
 
 ---
 
@@ -134,14 +125,14 @@ If the behavior matches: proceed to phase 2 with confidence. If it differs: fall
 
 ## Phase 4 — Apply to NSTextTable + cell line-break mode
 
-**Goal:** Replace the existing 320pt-cap heuristic with the new distribution. Set per-cell `byTruncatingTail` line-break mode (Q8). Visible milestone: the responsive layout reaches the user.
+**Goal:** Replace the existing 320pt-cap heuristic with the new distribution. Set per-cell `byWordWrapping` line-break mode (**Q9, supersedes Q8 truncation half**). Visible milestone: the responsive layout reaches the user.
 
 **Files updated:**
 
 - `Sources/Editor/Renderer/Tables/TK1TableBuilder.swift`:
   - Remove the `columnCap: CGFloat = 320` constant.
   - At table-build time: read `viewportWidth` from `NSTextContainer.containerSize.width`, read cached natural widths, call `TableColumnDistribution.distribute(...)`, apply per-column widths via `NSTextTableBlock.setValue(_:type:.absoluteValueType, for:.width)`.
-  - Set every cell's paragraph style `lineBreakMode = .byTruncatingTail`.
+  - Set every cell's paragraph style `lineBreakMode = .byWordWrapping`. (Spec Q9; falls through to TextKit's char-wrap last resort for pathological no-punctuation tokens — lossless.)
 - `Sources/Editor/EditorContainer.swift` (or wherever the text container's size is owned):
   - Expose a way to read the current container width to the table builder.
 
@@ -156,7 +147,7 @@ If the behavior matches: proceed to phase 2 with confidence. If it differs: fall
   - Decided By column ≈ natural width (locked)
   - Decision column = remainder (flex)
 - No more 320pt cap visible: a wide window gives the Decision column full available width.
-- Over-long-token cell: ellipsizes per Q8 if window is narrow; full token visible if window is wide enough.
+- Over-long-token cell: wraps cleanly at internal break opportunities (URL hyphens/slashes/dots) per Q9; pathological no-punctuation token falls through to char-wrap (lossless).
 - D17 manual test plan rerun GREEN — basic table rendering, in-place cell editing, click-into-wrapped-cell, scroll-on-edit all still work.
 
 **Commit:** `D24 phase 4 — distribute and apply column widths; cell byTruncatingTail`
@@ -218,7 +209,7 @@ If the behavior matches: proceed to phase 2 with confidence. If it differs: fall
 
 ## Risks / open implementation questions
 
-1. **Spike outcome** (phase 1) is the gating risk. If `byTruncatingTail` doesn't behave as Q8 claims, plan diverges to a custom layout-manager hook that detects mid-token line breaks and applies truncation. Estimate: +1 phase if fallback needed.
+1. ~~**Spike outcome** (phase 1) is the gating risk.~~ **Resolved 2026-05-04.** Spike RED on Q8; pivoted to `byWordWrapping` per Q9. No +1 phase needed — original 6-phase plan stands.
 
 2. **Cache invalidation under storage edits.** TK1 storage edits arrive as `NSTextStorage.processEditing()` notifications. The cache must invalidate on edits within a table's range, not on edits elsewhere. Anchored on the table's paragraph-style attribute or on a stable AST identifier — see spec risk #4.
 

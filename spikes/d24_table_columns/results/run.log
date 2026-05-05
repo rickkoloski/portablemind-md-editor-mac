@@ -1,0 +1,260 @@
+# D24 phase 1 spike — byTruncatingTail multi-line behavior
+# Font: .AppleSystemUIFont 14.0pt
+
+##############################################################
+## MODE: wordWrap
+##############################################################
+
+=== mode=wordWrap  cell=normal  width=600pt  contentChars=287 ===
+  numberOfGlyphs=0  lineCount=4
+  line[00]  fragRect=(x=0.0 y=0.0 w=600.0 h=17.0)  used=(w=588.0 h=17.0)  chars={0, 90}  len=90  endsWithEllipsis=no
+            text="This is ordinary multi-paragraph prose intended to wrap at word boundaries across several "
+  line[01]  fragRect=(x=0.0 y=17.0 w=600.0 h=17.0)  used=(w=545.1 h=17.0)  chars={90, 85}  len=85  endsWithEllipsis=no
+            text="lines. There are no abnormally long tokens; every word is shorter than the narrowest "
+  line[02]  fragRect=(x=0.0 y=34.0 w=600.0 h=17.0)  used=(w=570.9 h=17.0)  chars={175, 87}  len=87  endsWithEllipsis=no
+            text="container width tested. We expect TextKit to place line breaks between words and never "
+  line[03]  fragRect=(x=0.0 y=51.0 w=600.0 h=17.0)  used=(w=149.3 h=17.0)  chars={262, 25}  len=25  endsWithEllipsis=no
+            text="invoke truncation at all."
+
+=== mode=wordWrap  cell=normal  width=400pt  contentChars=287 ===
+  numberOfGlyphs=0  lineCount=5
+  line[00]  fragRect=(x=0.0 y=0.0 w=400.0 h=17.0)  used=(w=380.1 h=17.0)  chars={0, 59}  len=59  endsWithEllipsis=no
+            text="This is ordinary multi-paragraph prose intended to wrap at "
+  line[01]  fragRect=(x=0.0 y=17.0 w=400.0 h=17.0)  used=(w=330.8 h=17.0)  chars={59, 51}  len=51  endsWithEllipsis=no
+            text="word boundaries across several lines. There are no "
+  line[02]  fragRect=(x=0.0 y=34.0 w=400.0 h=17.0)  used=(w=354.4 h=17.0)  chars={110, 55}  len=55  endsWithEllipsis=no
+            text="abnormally long tokens; every word is shorter than the "
+  line[03]  fragRect=(x=0.0 y=51.0 w=400.0 h=17.0)  used=(w=395.8 h=17.0)  chars={165, 61}  len=61  endsWithEllipsis=no
+            text="narrowest container width tested. We expect TextKit to place "
+  line[04]  fragRect=(x=0.0 y=68.0 w=400.0 h=17.0)  used=(w=392.3 h=17.0)  chars={226, 61}  len=61  endsWithEllipsis=no
+            text="line breaks between words and never invoke truncation at all."
+
+=== mode=wordWrap  cell=normal  width=280pt  contentChars=287 ===
+  numberOfGlyphs=0  lineCount=8
+  line[00]  fragRect=(x=0.0 y=0.0 w=280.0 h=17.0)  used=(w=250.9 h=17.0)  chars={0, 39}  len=39  endsWithEllipsis=no
+            text="This is ordinary multi-paragraph prose "
+  line[01]  fragRect=(x=0.0 y=17.0 w=280.0 h=17.0)  used=(w=240.9 h=17.0)  chars={39, 36}  len=36  endsWithEllipsis=no
+            text="intended to wrap at word boundaries "
+  line[02]  fragRect=(x=0.0 y=34.0 w=280.0 h=17.0)  used=(w=219.1 h=17.0)  chars={75, 35}  len=35  endsWithEllipsis=no
+            text="across several lines. There are no "
+  line[03]  fragRect=(x=0.0 y=51.0 w=280.0 h=17.0)  used=(w=246.9 h=17.0)  chars={110, 38}  len=38  endsWithEllipsis=no
+            text="abnormally long tokens; every word is "
+  line[04]  fragRect=(x=0.0 y=68.0 w=280.0 h=17.0)  used=(w=279.0 h=17.0)  chars={148, 43}  len=43  endsWithEllipsis=no
+            text="shorter than the narrowest container width "
+  line[05]  fragRect=(x=0.0 y=85.0 w=280.0 h=17.0)  used=(w=250.5 h=17.0)  chars={191, 40}  len=40  endsWithEllipsis=no
+            text="tested. We expect TextKit to place line "
+  line[06]  fragRect=(x=0.0 y=102.0 w=280.0 h=17.0)  used=(w=261.7 h=17.0)  chars={231, 38}  len=38  endsWithEllipsis=no
+            text="breaks between words and never invoke "
+  line[07]  fragRect=(x=0.0 y=119.0 w=280.0 h=17.0)  used=(w=104.2 h=17.0)  chars={269, 18}  len=18  endsWithEllipsis=no
+            text="truncation at all."
+
+=== mode=wordWrap  cell=longUrl  width=600pt  contentChars=228 ===
+  numberOfGlyphs=0  lineCount=3
+  line[00]  fragRect=(x=0.0 y=0.0 w=600.0 h=17.0)  used=(w=579.1 h=17.0)  chars={0, 83}  len=83  endsWithEllipsis=no
+            text="https://example.com/very-long-unbreakable-token-with-no-whitespace-or-hyphens-that-"
+  line[01]  fragRect=(x=0.0 y=17.0 w=600.0 h=17.0)  used=(w=560.3 h=17.0)  chars={83, 83}  len=83  endsWithEllipsis=no
+            text="textkit-cannot-split-on-word-boundaries-because-it-is-a-single-contiguous-token-of-"
+  line[02]  fragRect=(x=0.0 y=34.0 w=600.0 h=17.0)  used=(w=419.0 h=17.0)  chars={166, 62}  len=62  endsWithEllipsis=no
+            text="considerable-length-stretching-well-past-typical-column-widths"
+
+=== mode=wordWrap  cell=longUrl  width=400pt  contentChars=228 ===
+  numberOfGlyphs=0  lineCount=5
+  line[00]  fragRect=(x=0.0 y=0.0 w=400.0 h=17.0)  used=(w=387.6 h=17.0)  chars={0, 56}  len=56  endsWithEllipsis=no
+            text="https://example.com/very-long-unbreakable-token-with-no-"
+  line[01]  fragRect=(x=0.0 y=17.0 w=400.0 h=17.0)  used=(w=382.7 h=17.0)  chars={56, 56}  len=56  endsWithEllipsis=no
+            text="whitespace-or-hyphens-that-textkit-cannot-split-on-word-"
+  line[02]  fragRect=(x=0.0 y=34.0 w=400.0 h=17.0)  used=(w=369.1 h=17.0)  chars={112, 54}  len=54  endsWithEllipsis=no
+            text="boundaries-because-it-is-a-single-contiguous-token-of-"
+  line[03]  fragRect=(x=0.0 y=51.0 w=400.0 h=17.0)  used=(w=376.3 h=17.0)  chars={166, 56}  len=56  endsWithEllipsis=no
+            text="considerable-length-stretching-well-past-typical-column-"
+  line[04]  fragRect=(x=0.0 y=68.0 w=400.0 h=17.0)  used=(w=42.6 h=17.0)  chars={222, 6}  len=6  endsWithEllipsis=no
+            text="widths"
+
+=== mode=wordWrap  cell=longUrl  width=280pt  contentChars=228 ===
+  numberOfGlyphs=0  lineCount=7
+  line[00]  fragRect=(x=0.0 y=0.0 w=280.0 h=17.0)  used=(w=203.8 h=17.0)  chars={0, 30}  len=30  endsWithEllipsis=no
+            text="https://example.com/very-long-"
+  line[01]  fragRect=(x=0.0 y=17.0 w=280.0 h=17.0)  used=(w=263.6 h=17.0)  chars={30, 37}  len=37  endsWithEllipsis=no
+            text="unbreakable-token-with-no-whitespace-"
+  line[02]  fragRect=(x=0.0 y=34.0 w=280.0 h=17.0)  used=(w=264.4 h=17.0)  chars={67, 40}  len=40  endsWithEllipsis=no
+            text="or-hyphens-that-textkit-cannot-split-on-"
+  line[03]  fragRect=(x=0.0 y=51.0 w=280.0 h=17.0)  used=(w=268.0 h=17.0)  chars={107, 39}  len=39  endsWithEllipsis=no
+            text="word-boundaries-because-it-is-a-single-"
+  line[04]  fragRect=(x=0.0 y=68.0 w=280.0 h=17.0)  used=(w=276.1 h=17.0)  chars={146, 40}  len=40  endsWithEllipsis=no
+            text="contiguous-token-of-considerable-length-"
+  line[05]  fragRect=(x=0.0 y=85.0 w=280.0 h=17.0)  used=(w=239.7 h=17.0)  chars={186, 36}  len=36  endsWithEllipsis=no
+            text="stretching-well-past-typical-column-"
+  line[06]  fragRect=(x=0.0 y=102.0 w=280.0 h=17.0)  used=(w=42.6 h=17.0)  chars={222, 6}  len=6  endsWithEllipsis=no
+            text="widths"
+
+=== mode=wordWrap  cell=mixed  width=600pt  contentChars=473 ===
+  numberOfGlyphs=0  lineCount=6
+  line[00]  fragRect=(x=0.0 y=0.0 w=600.0 h=17.0)  used=(w=547.3 h=17.0)  chars={0, 85}  len=85  endsWithEllipsis=no
+            text="Here is ordinary leading text that should wrap normally. Then comes the URL: https://"
+  line[01]  fragRect=(x=0.0 y=17.0 w=600.0 h=17.0)  used=(w=579.8 h=17.0)  chars={85, 83}  len=83  endsWithEllipsis=no
+            text="example.com/very-long-unbreakable-token-with-no-whitespace-or-hyphens-that-textkit-"
+  line[02]  fragRect=(x=0.0 y=34.0 w=600.0 h=17.0)  used=(w=513.9 h=17.0)  chars={168, 75}  len=75  endsWithEllipsis=no
+            text="cannot-split-on-word-boundaries-because-it-is-a-single-contiguous-token-of-"
+  line[03]  fragRect=(x=0.0 y=51.0 w=600.0 h=17.0)  used=(w=591.9 h=17.0)  chars={243, 90}  len=90  endsWithEllipsis=no
+            text="considerable-length-stretching-well-past-typical-column-widths and after the URL there is "
+  line[04]  fragRect=(x=0.0 y=68.0 w=600.0 h=17.0)  used=(w=564.5 h=17.0)  chars={333, 89}  len=89  endsWithEllipsis=no
+            text="more ordinary trailing text that should also wrap normally without being affected by the "
+  line[05]  fragRect=(x=0.0 y=85.0 w=600.0 h=17.0)  used=(w=320.5 h=17.0)  chars={422, 51}  len=51  endsWithEllipsis=no
+            text="truncation that may have hit the URL line above it."
+
+=== mode=wordWrap  cell=mixed  width=400pt  contentChars=473 ===
+  numberOfGlyphs=0  lineCount=9
+  line[00]  fragRect=(x=0.0 y=0.0 w=400.0 h=17.0)  used=(w=395.5 h=17.0)  chars={0, 62}  len=62  endsWithEllipsis=no
+            text="Here is ordinary leading text that should wrap normally. Then "
+  line[01]  fragRect=(x=0.0 y=17.0 w=400.0 h=17.0)  used=(w=395.5 h=17.0)  chars={62, 57}  len=57  endsWithEllipsis=no
+            text="comes the URL: https://example.com/very-long-unbreakable-"
+  line[02]  fragRect=(x=0.0 y=34.0 w=400.0 h=17.0)  used=(w=386.6 h=17.0)  chars={119, 56}  len=56  endsWithEllipsis=no
+            text="token-with-no-whitespace-or-hyphens-that-textkit-cannot-"
+  line[03]  fragRect=(x=0.0 y=51.0 w=400.0 h=17.0)  used=(w=323.9 h=17.0)  chars={175, 48}  len=48  endsWithEllipsis=no
+            text="split-on-word-boundaries-because-it-is-a-single-"
+  line[04]  fragRect=(x=0.0 y=68.0 w=400.0 h=17.0)  used=(w=379.1 h=17.0)  chars={223, 56}  len=56  endsWithEllipsis=no
+            text="contiguous-token-of-considerable-length-stretching-well-"
+  line[05]  fragRect=(x=0.0 y=85.0 w=400.0 h=17.0)  used=(w=389.0 h=17.0)  chars={279, 59}  len=59  endsWithEllipsis=no
+            text="past-typical-column-widths and after the URL there is more "
+  line[06]  fragRect=(x=0.0 y=102.0 w=400.0 h=17.0)  used=(w=386.1 h=17.0)  chars={338, 62}  len=62  endsWithEllipsis=no
+            text="ordinary trailing text that should also wrap normally without "
+  line[07]  fragRect=(x=0.0 y=119.0 w=400.0 h=17.0)  used=(w=380.7 h=17.0)  chars={400, 59}  len=59  endsWithEllipsis=no
+            text="being affected by the truncation that may have hit the URL "
+  line[08]  fragRect=(x=0.0 y=136.0 w=400.0 h=17.0)  used=(w=81.3 h=17.0)  chars={459, 14}  len=14  endsWithEllipsis=no
+            text="line above it."
+
+=== mode=wordWrap  cell=mixed  width=280pt  contentChars=473 ===
+  numberOfGlyphs=0  lineCount=13
+  line[00]  fragRect=(x=0.0 y=0.0 w=280.0 h=17.0)  used=(w=261.3 h=17.0)  chars={0, 42}  len=42  endsWithEllipsis=no
+            text="Here is ordinary leading text that should "
+  line[01]  fragRect=(x=0.0 y=17.0 w=280.0 h=17.0)  used=(w=240.2 h=17.0)  chars={42, 35}  len=35  endsWithEllipsis=no
+            text="wrap normally. Then comes the URL: "
+  line[02]  fragRect=(x=0.0 y=34.0 w=280.0 h=17.0)  used=(w=203.8 h=17.0)  chars={77, 30}  len=30  endsWithEllipsis=no
+            text="https://example.com/very-long-"
+  line[03]  fragRect=(x=0.0 y=51.0 w=280.0 h=17.0)  used=(w=263.6 h=17.0)  chars={107, 37}  len=37  endsWithEllipsis=no
+            text="unbreakable-token-with-no-whitespace-"
+  line[04]  fragRect=(x=0.0 y=68.0 w=280.0 h=17.0)  used=(w=264.4 h=17.0)  chars={144, 40}  len=40  endsWithEllipsis=no
+            text="or-hyphens-that-textkit-cannot-split-on-"
+  line[05]  fragRect=(x=0.0 y=85.0 w=280.0 h=17.0)  used=(w=268.0 h=17.0)  chars={184, 39}  len=39  endsWithEllipsis=no
+            text="word-boundaries-because-it-is-a-single-"
+  line[06]  fragRect=(x=0.0 y=102.0 w=280.0 h=17.0)  used=(w=276.1 h=17.0)  chars={223, 40}  len=40  endsWithEllipsis=no
+            text="contiguous-token-of-considerable-length-"
+  line[07]  fragRect=(x=0.0 y=119.0 w=280.0 h=17.0)  used=(w=239.7 h=17.0)  chars={263, 36}  len=36  endsWithEllipsis=no
+            text="stretching-well-past-typical-column-"
+  line[08]  fragRect=(x=0.0 y=136.0 w=280.0 h=17.0)  used=(w=252.3 h=17.0)  chars={299, 39}  len=39  endsWithEllipsis=no
+            text="widths and after the URL there is more "
+  line[09]  fragRect=(x=0.0 y=153.0 w=280.0 h=17.0)  used=(w=275.2 h=17.0)  chars={338, 45}  len=45  endsWithEllipsis=no
+            text="ordinary trailing text that should also wrap "
+  line[10]  fragRect=(x=0.0 y=170.0 w=280.0 h=17.0)  used=(w=252.5 h=17.0)  chars={383, 39}  len=39  endsWithEllipsis=no
+            text="normally without being affected by the "
+  line[11]  fragRect=(x=0.0 y=187.0 w=280.0 h=17.0)  used=(w=265.5 h=17.0)  chars={422, 42}  len=42  endsWithEllipsis=no
+            text="truncation that may have hit the URL line "
+  line[12]  fragRect=(x=0.0 y=204.0 w=280.0 h=17.0)  used=(w=54.9 h=17.0)  chars={464, 9}  len=9  endsWithEllipsis=no
+            text="above it."
+
+##############################################################
+## MODE: truncTailInf
+##############################################################
+
+=== mode=truncTailInf  cell=normal  width=600pt  contentChars=287 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=600.0 h=17.0)  used=(w=596.0 h=17.0)  chars={0, 287}  len=287  endsWithEllipsis=no
+            text="This is ordinary multi-paragraph prose intended to wrap at word boundaries across several lines. There are no abnormally…[+167]"
+
+=== mode=truncTailInf  cell=normal  width=400pt  contentChars=287 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=400.0 h=17.0)  used=(w=398.1 h=17.0)  chars={0, 287}  len=287  endsWithEllipsis=no
+            text="This is ordinary multi-paragraph prose intended to wrap at word boundaries across several lines. There are no abnormally…[+167]"
+
+=== mode=truncTailInf  cell=normal  width=280pt  contentChars=287 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=280.0 h=17.0)  used=(w=277.8 h=17.0)  chars={0, 287}  len=287  endsWithEllipsis=no
+            text="This is ordinary multi-paragraph prose intended to wrap at word boundaries across several lines. There are no abnormally…[+167]"
+
+=== mode=truncTailInf  cell=longUrl  width=600pt  contentChars=228 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=600.0 h=17.0)  used=(w=598.1 h=17.0)  chars={0, 228}  len=228  endsWithEllipsis=no
+            text="https://example.com/very-long-unbreakable-token-with-no-whitespace-or-hyphens-that-textkit-cannot-split-on-word-boundari…[+108]"
+
+=== mode=truncTailInf  cell=longUrl  width=400pt  contentChars=228 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=400.0 h=17.0)  used=(w=398.5 h=17.0)  chars={0, 228}  len=228  endsWithEllipsis=no
+            text="https://example.com/very-long-unbreakable-token-with-no-whitespace-or-hyphens-that-textkit-cannot-split-on-word-boundari…[+108]"
+
+=== mode=truncTailInf  cell=longUrl  width=280pt  contentChars=228 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=280.0 h=17.0)  used=(w=278.9 h=17.0)  chars={0, 228}  len=228  endsWithEllipsis=no
+            text="https://example.com/very-long-unbreakable-token-with-no-whitespace-or-hyphens-that-textkit-cannot-split-on-word-boundari…[+108]"
+
+=== mode=truncTailInf  cell=mixed  width=600pt  contentChars=473 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=600.0 h=17.0)  used=(w=598.4 h=17.0)  chars={0, 473}  len=473  endsWithEllipsis=no
+            text="Here is ordinary leading text that should wrap normally. Then comes the URL: https://example.com/very-long-unbreakable-t…[+353]"
+
+=== mode=truncTailInf  cell=mixed  width=400pt  contentChars=473 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=400.0 h=17.0)  used=(w=391.2 h=17.0)  chars={0, 473}  len=473  endsWithEllipsis=no
+            text="Here is ordinary leading text that should wrap normally. Then comes the URL: https://example.com/very-long-unbreakable-t…[+353]"
+
+=== mode=truncTailInf  cell=mixed  width=280pt  contentChars=473 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=280.0 h=17.0)  used=(w=279.9 h=17.0)  chars={0, 473}  len=473  endsWithEllipsis=no
+            text="Here is ordinary leading text that should wrap normally. Then comes the URL: https://example.com/very-long-unbreakable-t…[+353]"
+
+##############################################################
+## MODE: truncTailFinite
+##############################################################
+
+=== mode=truncTailFinite  cell=normal  width=600pt  contentChars=287 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=600.0 h=17.0)  used=(w=596.0 h=17.0)  chars={0, 287}  len=287  endsWithEllipsis=no
+            text="This is ordinary multi-paragraph prose inrun_spike.swift:145:22: warning: immutable value 'tc' was never used; consider replacing with '_' or removing it
+143 |             print(header)
+144 | 
+145 |             let (lm, tc, _, lines) = layout(content: cell.content, width: width, mode: mode)
+    |                      `- warning: immutable value 'tc' was never used; consider replacing with '_' or removing it
+146 |             print("  numberOfGlyphs=\(lm.numberOfGlyphs)  lineCount=\(lines.count)")
+147 | 
+tended to wrap at word boundaries across several lines. There are no abnormally…[+167]"
+
+=== mode=truncTailFinite  cell=normal  width=400pt  contentChars=287 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=400.0 h=17.0)  used=(w=398.1 h=17.0)  chars={0, 287}  len=287  endsWithEllipsis=no
+            text="This is ordinary multi-paragraph prose intended to wrap at word boundaries across several lines. There are no abnormally…[+167]"
+
+=== mode=truncTailFinite  cell=normal  width=280pt  contentChars=287 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=280.0 h=17.0)  used=(w=277.8 h=17.0)  chars={0, 287}  len=287  endsWithEllipsis=no
+            text="This is ordinary multi-paragraph prose intended to wrap at word boundaries across several lines. There are no abnormally…[+167]"
+
+=== mode=truncTailFinite  cell=longUrl  width=600pt  contentChars=228 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=600.0 h=17.0)  used=(w=598.1 h=17.0)  chars={0, 228}  len=228  endsWithEllipsis=no
+            text="https://example.com/very-long-unbreakable-token-with-no-whitespace-or-hyphens-that-textkit-cannot-split-on-word-boundari…[+108]"
+
+=== mode=truncTailFinite  cell=longUrl  width=400pt  contentChars=228 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=400.0 h=17.0)  used=(w=398.5 h=17.0)  chars={0, 228}  len=228  endsWithEllipsis=no
+            text="https://example.com/very-long-unbreakable-token-with-no-whitespace-or-hyphens-that-textkit-cannot-split-on-word-boundari…[+108]"
+
+=== mode=truncTailFinite  cell=longUrl  width=280pt  contentChars=228 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=280.0 h=17.0)  used=(w=278.9 h=17.0)  chars={0, 228}  len=228  endsWithEllipsis=no
+            text="https://example.com/very-long-unbreakable-token-with-no-whitespace-or-hyphens-that-textkit-cannot-split-on-word-boundari…[+108]"
+
+=== mode=truncTailFinite  cell=mixed  width=600pt  contentChars=473 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=600.0 h=17.0)  used=(w=598.4 h=17.0)  chars={0, 473}  len=473  endsWithEllipsis=no
+            text="Here is ordinary leading text that should wrap normally. Then comes the URL: https://example.com/very-long-unbreakable-t…[+353]"
+
+=== mode=truncTailFinite  cell=mixed  width=400pt  contentChars=473 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=400.0 h=17.0)  used=(w=391.2 h=17.0)  chars={0, 473}  len=473  endsWithEllipsis=no
+            text="Here is ordinary leading text that should wrap normally. Then comes the URL: https://example.com/very-long-unbreakable-t…[+353]"
+
+=== mode=truncTailFinite  cell=mixed  width=280pt  contentChars=473 ===
+  numberOfGlyphs=0  lineCount=1
+  line[00]  fragRect=(x=0.0 y=0.0 w=280.0 h=17.0)  used=(w=279.9 h=17.0)  chars={0, 473}  len=473  endsWithEllipsis=no
+            text="Here is ordinary leading text that should wrap normally. Then comes the URL: https://example.com/very-long-unbreakable-t…[+353]"
+
+# done

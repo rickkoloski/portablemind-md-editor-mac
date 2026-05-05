@@ -33,7 +33,7 @@ The Read cache is keyed on CC's prior reads in the conversation, not on the file
 
 **Date:** 2026-04-27
 **Area:** editor (table rendering)
-**Status:** Open
+**Status:** Fixed (D24, 2026-05-05)
 
 Tables with text-heavy columns (e.g. the Decision log table in `d18_pm_connector_directory_tree_spec.md`) wrap aggressively even when there's plenty of horizontal room in the editor window. CD noticed this on the D18 spec's Decision log: the "Decision" column reads narrow despite the window being wide.
 
@@ -50,6 +50,8 @@ For the D18 Decision log, the "Decision" column's natural text width is many tho
 **Discovered during:** D18 spec authoring; CD reading the Decision log table in PM Markdown.
 
 **Not blocking D18.** D18 is the PM connector + sidebar tree; no table rendering changes. File for later — likely a focused deliverable in the post-D19 window.
+
+**Resolution:** D24 (2026-05-05). Replaced the 320pt cap with a content-aware proportional layout (lock-in + flex distribution) that mirrors VS Code preview / browser `table-layout: auto`. Phase 1 spike falsified the spec's original `byTruncatingTail` plan; pivoted to `byWordWrapping` (Q9). Resize debounced reflow added in phase 5 so widths track the live viewport. See `docs/current_work/stepwise_results/d24_responsive_table_columns_COMPLETE.md`.
 
 ---
 

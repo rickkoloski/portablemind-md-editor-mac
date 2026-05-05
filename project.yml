@@ -82,15 +82,34 @@ targets:
         DEVELOPMENT_TEAM: ""
         TEST_TARGET_NAME: MdEditor
 
+  MdEditorUnitTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: UnitTests
+    dependencies:
+      - target: MdEditor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.portablemind.md-editor.unittests
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.10"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+
 schemes:
   MdEditor:
     build:
       targets:
         MdEditor: all
         MdEditorUITests: [test]
+        MdEditorUnitTests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
+        - MdEditorUnitTests
         - MdEditorUITests

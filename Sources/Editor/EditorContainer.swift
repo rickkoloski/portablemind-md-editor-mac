@@ -145,9 +145,29 @@ struct EditorContainer: NSViewRepresentable {
         private let document: EditorDocument
         private var cancellables: Set<AnyCancellable> = []
 
+        /// D24 phase 5 — debounced reflow on window resize. Holds the
+        /// currently scheduled reflow; cancelled and rescheduled on each
+        /// new resize notification. Fires renderCurrentText 100ms after
+        /// the resize storm subsides.
+        private var resizeReflowTask: Task<Void, Never>?
+
         init(document: EditorDocument) {
             self.document = document
         }
+
+        deinit {
+            // Notification observer added via the closure-based API
+            // returns an opaque token; we keep it on the coordinator so
+            // it lives exactly as long as the coordinator does.
+            if let token = resizeObserver {
+                NotificationCenter.default.removeObserver(token)
+            }
+            resizeReflowTask?.cancel()
+        }
+
+        /// Opaque token from `NotificationCenter.addObserver(forName:...)`.
+        /// Must be held to keep the observer alive and removed on deinit.
+        private var resizeObserver: NSObjectProtocol?
 
         func wireDocumentSubscription() {
             // When the document's source changes externally (e.g., an
@@ -190,6 +210,44 @@ struct EditorContainer: NSViewRepresentable {
                     self.scheduleApply(target)
                 }
                 .store(in: &cancellables)
+
+            subscribeToWindowResize()
+        }
+
+        /// D24 phase 5 — debounced reflow trigger. NSWindow posts
+        /// `didResizeNotification` continuously during a drag-resize;
+        /// each notification cancels and reschedules the reflow Task,
+        /// so renderCurrentText fires once, ~100ms after the drag eases.
+        /// During the active drag the rendered table widths stay frozen
+        /// at the pre-resize values — visible until the debounce fires.
+        private func subscribeToWindowResize() {
+            // Object-less subscription: the textView's window can change
+            // (move-to-window during attach), and AppKit posts on the
+            // resized window directly. Filter inside the handler.
+            resizeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                guard let self,
+                      let tv = self.textView,
+                      let resized = note.object as? NSWindow,
+                      resized === tv.window else { return }
+                self.scheduleResizeReflow(in: tv)
+            }
+        }
+
+        private func scheduleResizeReflow(in textView: LiveRenderTextView) {
+            resizeReflowTask?.cancel()
+            resizeReflowTask = Task { @MainActor [weak self] in
+                // 100ms tail per Q3. NSWindow.didResizeNotification fires
+                // many times during a drag; each cancel-and-reschedule
+                // keeps the reflow waiting until the storm subsides.
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                if Task.isCancelled { return }
+                guard let self else { return }
+                self.renderCurrentText(in: textView)
+            }
         }
 
         /// Defer the focus-target apply until the text view is

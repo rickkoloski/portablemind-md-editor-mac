@@ -306,6 +306,13 @@ final class HarnessCommandPoller {
                 tableIndex: (params["tableIndex"] as? Int) ?? 0,
                 resultPath: params["path"] as? String
                     ?? "/tmp/mdeditor-table-layout.json")
+        // D24 phase 5 — programmatic window-width resize so a driver can
+        // exercise the debounced reflow without dragging the chrome.
+        case "set_window_width":
+            if let widthVal = (params["pt"] as? Double)
+                ?? (params["pt"] as? Int).map(Double.init) {
+                setWindowWidth(CGFloat(widthVal))
+            }
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -1208,6 +1215,19 @@ final class HarnessCommandPoller {
             try? data.write(to: URL(fileURLWithPath: resultPath))
             NSLog("[TEST-HARNESS] table widths → \(resultPath) (\(data.count) bytes)")
         }
+    }
+
+    // D24 phase 5 — programmatically resize the active text view's
+    // window width. AppKit posts NSWindow.didResizeNotification on the
+    // window itself; the editor container's debounce picks it up and
+    // reflows ~100ms later. Test driver pattern: set width, sleep ≥150ms,
+    // dump_table_layout / snapshot.
+    private func setWindowWidth(_ pt: CGFloat) {
+        guard let tv = HarnessActiveSink.shared.activeTextView,
+              let window = tv.window else { return }
+        var frame = window.frame
+        frame.size.width = pt
+        window.setFrame(frame, display: true, animate: false)
     }
 
     // D24 phase 4 — per-column applied widths after distribute(). Reports

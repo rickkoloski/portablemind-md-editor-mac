@@ -284,7 +284,15 @@ struct EditorContainer: NSViewRepresentable {
             // refresh paths (initial open, external file change), so
             // pulling source directly is the right semantic.
             let source = document.source
-            let result = document.documentType.render(source)
+            // D24 phase 4 — pass live container width to the renderer so
+            // table column distribution tracks the actual editor viewport.
+            // Falls back to 800pt when the container is mid-attach (only
+            // hit on the very first render before AppKit has sized the
+            // container; the next render after layout will see the real
+            // width and reflow).
+            let viewportWidth = textView.textContainer?.containerSize.width ?? 800
+            let result = document.documentType.render(
+                source, viewportWidth: viewportWidth)
 
             // Preserve the user's selection across the storage replace
             // so cursor position is stable when an external edit fires

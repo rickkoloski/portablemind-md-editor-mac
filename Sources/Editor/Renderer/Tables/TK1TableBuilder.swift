@@ -28,9 +28,16 @@ enum TK1TableBuilder {
     /// - Returns: an NSAttributedString whose paragraphs are cells.
     ///   Last paragraph is terminated by `\n` like the rest so the
     ///   table flows naturally with the surrounding content.
+    /// Per-cell framing overhead (border × 2 + padding × 2) added by
+    /// `makeCell` via `setWidth(_:type:for:.border)` and `.padding`. The
+    /// distribute target shaves N × `cellFramingOverhead` off `viewportWidth`
+    /// so the rendered table fits without spilling past the container.
+    static let cellFramingOverhead: CGFloat = 14   // 2*1 (border) + 2*6 (padding)
+
     static func build(table: Table,
                       tableSourceRange: NSRange,
-                      nsSource: NSString) -> NSAttributedString {
+                      nsSource: NSString,
+                      viewportWidth: CGFloat) -> NSAttributedString {
         // 1. Derive cell content + per-cell source ranges from each
         //    row's source line.
         let headerCells: [Markdown.Table.Cell] = table.head.children
@@ -71,12 +78,16 @@ enum TK1TableBuilder {
         table1.collapsesBorders = false
         table1.hidesEmptyCells = false
 
-        // 5. Pick a column content width. Mirror the legacy renderer's
-        //    column-cap logic: max natural cell width capped at 320pt.
+        // 5. D24 phase 4 — responsive column widths. Pre-cap each
+        //    column's natural width at the viewport (Q8); subtract per-
+        //    cell framing from the distribute target so the rendered
+        //    table fits within `viewportWidth` end-to-end; let the
+        //    distribution algorithm produce per-column applied widths.
         let columnContentWidths = computeColumnWidths(
             headerCells: headerCells,
             bodyCells: bodyCells,
-            columnCount: columnCount)
+            columnCount: columnCount,
+            viewportWidth: viewportWidth)
 
         // 6. Emit cell paragraphs row-by-row. Header → body rows.
         let result = NSMutableAttributedString()
@@ -136,6 +147,11 @@ enum TK1TableBuilder {
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.textBlocks = [block]
+        // D24 Q9 — multi-line word wrap inside cells. URLs and paths
+        // wrap at internal break opportunities (-, /, .); pathological
+        // no-punctuation tokens fall through to TextKit's char-wrap
+        // last resort, lossless.
+        paragraph.lineBreakMode = .byWordWrapping
 
         let font: NSFont = isHeader
             ? Typography.boldFont
@@ -271,25 +287,30 @@ enum TK1TableBuilder {
 
     // MARK: - Column width
 
-    /// Phase 2 (D24): the legacy 320pt-cap heuristic is preserved here so
-    /// behavior is unchanged. Per-column natural widths are computed via
-    /// `naturalWidth(...)` (cache-aware) and then clamped by the cap. Phase
-    /// 4 will swap this entire function for `TableColumnDistribution.distribute(...)`.
+    /// D24 phase 4: per-column applied widths via `TableColumnDistribution.distribute`.
+    /// Pre-caps each natural width at `viewportWidth` (Q8). Subtracts the
+    /// per-cell framing overhead × column count from the distribute target so
+    /// the rendered table fits inside `viewportWidth` end-to-end.
     private static func computeColumnWidths(
         headerCells: [Markdown.Table.Cell],
         bodyCells: [[Markdown.Table.Cell]],
-        columnCount: Int
+        columnCount: Int,
+        viewportWidth: CGFloat
     ) -> [CGFloat] {
-        let columnCap: CGFloat = 320
-        var widths: [CGFloat] = Array(repeating: 60, count: columnCount)
+        guard columnCount > 0 else { return [] }
+        var naturals: [CGFloat] = Array(repeating: 0, count: columnCount)
         for col in 0..<columnCount {
             let (nat, _) = naturalWidth(
                 headerCells: headerCells,
                 bodyCells: bodyCells,
                 column: col)
-            widths[col] = max(60, min(nat, columnCap))
+            naturals[col] = min(nat, viewportWidth)
         }
-        return widths
+        let framingTotal = cellFramingOverhead * CGFloat(columnCount)
+        let target = max(0, viewportWidth - framingTotal)
+        return TableColumnDistribution.distribute(
+            naturalWidths: naturals,
+            viewportWidth: target)
     }
 
     // MARK: - D24 phase 2 — natural-width measurement (cache-aware)

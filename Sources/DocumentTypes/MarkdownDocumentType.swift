@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Markdown — the first registered DocumentType. Wraps the renderer
@@ -10,7 +11,7 @@ struct MarkdownDocumentType: DocumentType {
 
     init() {}
 
-    func render(_ source: String) -> RenderResult {
-        renderer.render(source)
+    func render(_ source: String, viewportWidth: CGFloat) -> RenderResult {
+        renderer.render(source, viewportWidth: viewportWidth)
     }
 }

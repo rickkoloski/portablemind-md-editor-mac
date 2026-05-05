@@ -19,7 +19,7 @@ import Markdown
 ///   as delimiters; multiline range conversion uses the shared
 ///   SourceLocationConverter so the range spans real content lines.
 final class MarkdownRenderer {
-    func render(_ source: String) -> RenderResult {
+    func render(_ source: String, viewportWidth: CGFloat = 800) -> RenderResult {
         let nsSource = source as NSString
         let converter = SourceLocationConverter(source: source)
         let visitor = RenderVisitor(nsSource: nsSource, converter: converter)
@@ -43,7 +43,8 @@ final class MarkdownRenderer {
             nsSource: nsSource,
             document: document,
             converter: converter,
-            assignments: visitor.assignments)
+            assignments: visitor.assignments,
+            viewportWidth: viewportWidth)
         return RenderResult(
             assignments: visitor.assignments,
             spans: visitor.spans,
@@ -65,7 +66,8 @@ final class MarkdownRenderer {
                                        nsSource: NSString,
                                        document: Document,
                                        converter: SourceLocationConverter,
-                                       assignments: [AttributeAssignment]) -> NSAttributedString {
+                                       assignments: [AttributeAssignment],
+                                       viewportWidth: CGFloat) -> NSAttributedString {
         // Step 1 + 2.
         let mutable = NSMutableAttributedString(string: source)
         for assignment in assignments {
@@ -118,7 +120,8 @@ final class MarkdownRenderer {
             let cellsAS = TK1TableBuilder.build(
                 table: table,
                 tableSourceRange: clamped,
-                nsSource: nsSource)
+                nsSource: nsSource,
+                viewportWidth: viewportWidth)
             mutable.replaceCharacters(in: clamped, with: cellsAS)
         }
         return mutable

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// A document type describes how to render a particular kind of file.
@@ -13,5 +14,18 @@ protocol DocumentType {
 
     /// Parse `source` and return a `RenderResult` (attribute assignments
     /// plus syntax spans for the cursor-on-line tracker).
-    func render(_ source: String) -> RenderResult
+    ///
+    /// - Parameter viewportWidth: text container width in points, used by
+    ///   document types that lay out responsive content (e.g., D24 markdown
+    ///   tables). Types that don't care can ignore. Default 800pt fallback
+    ///   for callers without a live container measurement (rendering tests,
+    ///   pre-attach paths).
+    func render(_ source: String, viewportWidth: CGFloat) -> RenderResult
+}
+
+extension DocumentType {
+    /// Backwards-compatible default for callers that don't pass a viewport.
+    func render(_ source: String) -> RenderResult {
+        render(source, viewportWidth: 800)
+    }
 }

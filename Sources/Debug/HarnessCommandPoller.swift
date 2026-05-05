@@ -300,6 +300,12 @@ final class HarnessCommandPoller {
                 tableIndex: (params["tableIndex"] as? Int) ?? 0,
                 resultPath: params["path"] as? String
                     ?? "/tmp/mdeditor-table-widths.json")
+        // D24 phase 4 — per-column applied widths after distribute().
+        case "dump_table_layout":
+            dumpTableLayout(
+                tableIndex: (params["tableIndex"] as? Int) ?? 0,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-table-layout.json")
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -1201,6 +1207,92 @@ final class HarnessCommandPoller {
             options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: resultPath))
             NSLog("[TEST-HARNESS] table widths → \(resultPath) (\(data.count) bytes)")
+        }
+    }
+
+    // D24 phase 4 — per-column applied widths after distribute(). Reports
+    // the live viewport width the harness saw, the framing overhead, the
+    // distribute target, and per-column applied / capped-natural / locked
+    // / flex flags. Mirrors the production render path: same naturals,
+    // same Q8 pre-cap, same target subtraction.
+    private func dumpTableLayout(tableIndex: Int, resultPath: String) {
+        guard let doc = WorkspaceStore.shared.tabs.focused else {
+            try? Data("{\"error\":\"no focused doc\"}".utf8)
+                .write(to: URL(fileURLWithPath: resultPath))
+            return
+        }
+        let source = doc.source
+        let nsSource = source as NSString
+        let document = Document(parsing: source)
+        let tables: [Table] = document.children.compactMap { $0 as? Table }
+        guard tableIndex >= 0, tableIndex < tables.count else {
+            let err: [String: Any] = [
+                "error": "tableIndex out of range",
+                "tableIndex": tableIndex,
+                "tableCount": tables.count
+            ]
+            if let data = try? JSONSerialization.data(
+                withJSONObject: err,
+                options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: URL(fileURLWithPath: resultPath))
+            }
+            return
+        }
+
+        // Read viewport from the active text view's container; fall back
+        // to 800pt if no view is attached (won't happen in normal harness
+        // flows but keeps the action safe).
+        let viewportWidth: CGFloat
+        if let tv = HarnessActiveSink.shared.activeTextView,
+           let container = tv.textContainer {
+            viewportWidth = container.containerSize.width
+        } else {
+            viewportWidth = 800
+        }
+
+        let measurements = TK1TableBuilder.measureNaturalWidths(
+            table: tables[tableIndex], nsSource: nsSource)
+        let n = measurements.count
+        let cappedNaturals: [CGFloat] = measurements.map {
+            min($0.naturalWidth, viewportWidth)
+        }
+        let framingOverhead = TK1TableBuilder.cellFramingOverhead * CGFloat(n)
+        let target = max(0, viewportWidth - framingOverhead)
+        let applied = TableColumnDistribution.distribute(
+            naturalWidths: cappedNaturals,
+            viewportWidth: target)
+
+        var columns: [[String: Any]] = []
+        columns.reserveCapacity(n)
+        for i in 0..<n {
+            let nat = measurements[i].naturalWidth
+            let cap = cappedNaturals[i]
+            let app = i < applied.count ? applied[i] : 0
+            // "locked" means the applied width matches the capped natural
+            // (within 0.5pt tolerance) — i.e. the column got its full ask.
+            let locked = abs(app - cap) < 0.5
+            columns.append([
+                "column": i,
+                "naturalWidthPt": Double(nat),
+                "cappedNaturalPt": Double(cap),
+                "appliedWidthPt": Double(app),
+                "locked": locked,
+                "flex": !locked
+            ])
+        }
+        let payload: [String: Any] = [
+            "tableIndex": tableIndex,
+            "tableCount": tables.count,
+            "viewportWidth": Double(viewportWidth),
+            "framingOverhead": Double(framingOverhead),
+            "distributeTarget": Double(target),
+            "columns": columns
+        ]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: resultPath))
+            NSLog("[TEST-HARNESS] table layout → \(resultPath) (\(data.count) bytes)")
         }
     }
 }

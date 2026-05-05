@@ -271,6 +271,10 @@ enum TK1TableBuilder {
 
     // MARK: - Column width
 
+    /// Phase 2 (D24): the legacy 320pt-cap heuristic is preserved here so
+    /// behavior is unchanged. Per-column natural widths are computed via
+    /// `naturalWidth(...)` (cache-aware) and then clamped by the cap. Phase
+    /// 4 will swap this entire function for `TableColumnDistribution.distribute(...)`.
     private static func computeColumnWidths(
         headerCells: [Markdown.Table.Cell],
         bodyCells: [[Markdown.Table.Cell]],
@@ -279,21 +283,97 @@ enum TK1TableBuilder {
         let columnCap: CGFloat = 320
         var widths: [CGFloat] = Array(repeating: 60, count: columnCount)
         for col in 0..<columnCount {
-            var maxWidth: CGFloat = 60
+            let (nat, _) = naturalWidth(
+                headerCells: headerCells,
+                bodyCells: bodyCells,
+                column: col)
+            widths[col] = max(60, min(nat, columnCap))
+        }
+        return widths
+    }
+
+    // MARK: - D24 phase 2 — natural-width measurement (cache-aware)
+
+    /// Per-column measurement record for the harness.
+    struct ColumnMeasurement {
+        let column: Int
+        let naturalWidth: CGFloat
+        let cacheHit: Bool
+    }
+
+    /// Public entry for the test harness (`dump_table_natural_widths`).
+    /// Walks the parsed table's cells exactly the way `build(...)` does and
+    /// returns per-column natural widths plus cache-hit flags.
+    static func measureNaturalWidths(table: Table,
+                                     nsSource: NSString) -> [ColumnMeasurement] {
+        let headerCells: [Markdown.Table.Cell] = table.head.children
+            .compactMap { $0 as? Markdown.Table.Cell }
+        let bodyRows: [Markdown.Table.Row] = table.body.children
+            .compactMap { $0 as? Markdown.Table.Row }
+        let bodyCells: [[Markdown.Table.Cell]] = bodyRows.map { row in
+            row.children.compactMap { $0 as? Markdown.Table.Cell }
+        }
+        let columnCount = max(
+            headerCells.count,
+            bodyCells.map(\.count).max() ?? 0)
+        var out: [ColumnMeasurement] = []
+        out.reserveCapacity(columnCount)
+        for col in 0..<columnCount {
+            let (w, hit) = naturalWidth(
+                headerCells: headerCells,
+                bodyCells: bodyCells,
+                column: col)
+            out.append(ColumnMeasurement(
+                column: col, naturalWidth: w, cacheHit: hit))
+        }
+        return out
+    }
+
+    /// Per-column natural width: longest single-line CT-shaped width across
+    /// the header cell + every body row's cell in the column. Cached by a
+    /// content hash that captures every contributing cell's plain text in
+    /// render order (header first, body rows in row order). Header cell is
+    /// shaped with `Typography.boldFont`; body cells with `Typography.baseFont`
+    /// — same fonts the renderer uses, so measure ≈ render width.
+    static func naturalWidth(headerCells: [Markdown.Table.Cell],
+                             bodyCells: [[Markdown.Table.Cell]],
+                             column col: Int) -> (CGFloat, Bool) {
+        var hasher = Hasher()
+        if col < headerCells.count {
+            hasher.combine("h")
+            hasher.combine(headerCells[col].plainText)
+        }
+        for (rowIdx, row) in bodyCells.enumerated() where col < row.count {
+            hasher.combine(rowIdx)
+            hasher.combine(row[col].plainText)
+        }
+        let key = hasher.finalize()
+
+        return TableNaturalWidthCache.shared.widthOrCompute(forContentHash: key) {
+            var maxW: CGFloat = 0
             if col < headerCells.count {
                 let s = NSAttributedString(
-                    string: headerCells[col].plainText,
+                    string: cellNaturalText(headerCells[col].plainText),
                     attributes: [.font: Typography.boldFont])
-                maxWidth = max(maxWidth, min(s.size().width, columnCap))
+                maxW = max(maxW, s.size().width)
             }
             for row in bodyCells where col < row.count {
                 let s = NSAttributedString(
-                    string: row[col].plainText,
+                    string: cellNaturalText(row[col].plainText),
                     attributes: [.font: Typography.baseFont])
-                maxWidth = max(maxWidth, min(s.size().width, columnCap))
+                maxW = max(maxW, s.size().width)
             }
-            widths[col] = maxWidth
+            return maxW
         }
-        return widths
+    }
+
+    /// Strip the cell text down to what the renderer actually displays:
+    /// first source line only, with markdown-escapes for `|` and `\` undone
+    /// so width measurement matches what the user sees.
+    private static func cellNaturalText(_ raw: String) -> String {
+        let firstLine = raw.components(separatedBy: "\n").first ?? raw
+        return firstLine
+            .replacingOccurrences(of: "\\|", with: "|")
+            .replacingOccurrences(of: "\\\\", with: "\\")
     }
 }

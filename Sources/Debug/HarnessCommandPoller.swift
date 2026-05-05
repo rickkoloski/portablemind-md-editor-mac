@@ -39,6 +39,7 @@
 
 import AppKit
 import Foundation
+import Markdown
 
 @MainActor
 final class HarnessCommandPoller {
@@ -293,6 +294,12 @@ final class HarnessCommandPoller {
             // ⌘S menu path.
             attemptSaveFocused(to: params["path"] as? String
                 ?? "/tmp/mdeditor-save-result.json")
+        // D24 phase 2 — per-column natural-width measurement + cache hit/miss.
+        case "dump_table_natural_widths":
+            dumpTableNaturalWidths(
+                tableIndex: (params["tableIndex"] as? Int) ?? 0,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-table-widths.json")
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -1130,6 +1137,70 @@ final class HarnessCommandPoller {
                 try? data.write(to: URL(fileURLWithPath: path))
                 NSLog("[TEST-HARNESS] pm_save_smoke → \(path) (\(data.count) bytes)")
             }
+        }
+    }
+
+    // D24 phase 2 — emit per-column natural widths for the Nth top-level
+    // table in the focused doc, plus the cache's hit/miss counters. Drivers
+    // can call this twice on identical content to assert cache HIT, then
+    // edit a cell and call again to assert cache MISS for the touched
+    // column. Re-parses the doc each call (cheap; verification surface).
+    private func dumpTableNaturalWidths(tableIndex: Int, resultPath: String) {
+        // Use document.source (canonical markdown), NOT tv.string — the
+        // text view's storage holds the rendered form (cells already
+        // replaced with per-cell paragraphs), which the markdown parser
+        // can't see as a Table node.
+        guard let doc = WorkspaceStore.shared.tabs.focused else {
+            try? Data("{\"error\":\"no focused doc\"}".utf8)
+                .write(to: URL(fileURLWithPath: resultPath))
+            return
+        }
+        let source = doc.source
+        let nsSource = source as NSString
+        let document = Document(parsing: source)
+        let tables: [Table] = document.children.compactMap { $0 as? Table }
+        guard tableIndex >= 0, tableIndex < tables.count else {
+            let err: [String: Any] = [
+                "error": "tableIndex out of range",
+                "tableIndex": tableIndex,
+                "tableCount": tables.count
+            ]
+            if let data = try? JSONSerialization.data(
+                withJSONObject: err,
+                options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: URL(fileURLWithPath: resultPath))
+            }
+            return
+        }
+
+        let measurements = TK1TableBuilder.measureNaturalWidths(
+            table: tables[tableIndex], nsSource: nsSource)
+        let stats = TableNaturalWidthCache.shared.stats()
+
+        var columns: [[String: Any]] = []
+        columns.reserveCapacity(measurements.count)
+        for m in measurements {
+            columns.append([
+                "column": m.column,
+                "naturalWidthPt": Double(m.naturalWidth),
+                "cacheHit": m.cacheHit
+            ])
+        }
+        let payload: [String: Any] = [
+            "tableIndex": tableIndex,
+            "tableCount": tables.count,
+            "columns": columns,
+            "cacheStats": [
+                "hits": stats.hits,
+                "misses": stats.misses,
+                "entries": stats.entries
+            ]
+        ]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: resultPath))
+            NSLog("[TEST-HARNESS] table widths → \(resultPath) (\(data.count) bytes)")
         }
     }
 }

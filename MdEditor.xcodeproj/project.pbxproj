@@ -22,6 +22,7 @@
 		323A753C16056D56B441C81B /* CommandSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = F853A094F4BFC4386FAA5854 /* CommandSurface.swift */; };
 		325CEE5C8D0FAB09DE4417D8 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = F2CAAB3B6DF1667818F6D329 /* Markdown */; };
 		32F266F823BC3F25F489BA43 /* InlineCodeMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38B8648E855C0852B13DBD8B /* InlineCodeMutation.swift */; };
+		336C4FA146D725717697F2AA /* TableNaturalWidthCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83EA3641DD800159B1D58699 /* TableNaturalWidthCache.swift */; };
 		37852AF9969A7148A174080D /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CD85D99BA4A020FC41BBAF /* WorkspaceView.swift */; };
 		38123D3E013026B5BB41A264 /* EditorDispatcherRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 770FBECB95BF5127256B338C /* EditorDispatcherRegistry.swift */; };
 		38EB69A8B24FF9E4421EB31D /* PortableMindAPITypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFAE7E5D6F6118A49F7BDE9F /* PortableMindAPITypes.swift */; };
@@ -132,6 +133,7 @@
 		7E608C92087DA2ED99857040 /* PortableMindEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortableMindEnvironment.swift; sourceTree = "<group>"; };
 		7EF3F965AD0AEC856FA38062 /* HarnessCommandPoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessCommandPoller.swift; sourceTree = "<group>"; };
 		8133DDE032155B87C4A2650B /* ItalicMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItalicMutation.swift; sourceTree = "<group>"; };
+		83EA3641DD800159B1D58699 /* TableNaturalWidthCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableNaturalWidthCache.swift; sourceTree = "<group>"; };
 		87B7D9987868179EBCB7AF10 /* MarkdownDocumentType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocumentType.swift; sourceTree = "<group>"; };
 		8B0D75F7987F596BA98D2F95 /* LinkMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkMutation.swift; sourceTree = "<group>"; };
 		8BBAE8875CC8A86DE2337B2F /* MutationToolbarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationToolbarTests.swift; sourceTree = "<group>"; };
@@ -291,6 +293,7 @@
 			isa = PBXGroup;
 			children = (
 				ECF957794ED2ACD3B1ABFE92 /* TableAttributeKeys.swift */,
+				83EA3641DD800159B1D58699 /* TableNaturalWidthCache.swift */,
 				DA3D9A8C4E9F19A62262219D /* TK1Serializer.swift */,
 				5F683B54F729F1322B126E92 /* TK1TableBuilder.swift */,
 			);
@@ -631,6 +634,7 @@
 				6A29B99B1BC477966EFD6F57 /* TabBarView.swift in Sources */,
 				96CD4BE30D86169942098782 /* TabStore.swift in Sources */,
 				5CD99DAEF143C07FE11548A1 /* TableAttributeKeys.swift in Sources */,
+				336C4FA146D725717697F2AA /* TableNaturalWidthCache.swift in Sources */,
 				6D88FBA4B522C7FD4FAA2B75 /* TenantInitialsBadge.swift in Sources */,
 				9C2088280AABDF39A2A1C227 /* ToolbarAction.swift in Sources */,
 				B4602C6248AF2BBADA64EF6F /* ToolbarButton.swift in Sources */,

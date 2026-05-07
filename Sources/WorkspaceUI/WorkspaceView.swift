@@ -21,6 +21,12 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.saveAsRequest) { request in
             SaveAsSheet(request: request, workspace: workspace)
         }
+        // D23 phase 4 — Rename modal sheet. Same pattern as Save As;
+        // bound to workspace.renameRequest. Driven by the sidebar
+        // context menu (right-click → Rename…) on PM file rows.
+        .sheet(item: $workspace.renameRequest) { request in
+            RenameSheet(request: request, workspace: workspace)
+        }
     }
 
     @ViewBuilder

@@ -83,6 +83,7 @@
 		C974A639DBD67E3A3E7110AD /* TableColumnDistribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36F9ACAE2BE8207C3FA58470 /* TableColumnDistribution.swift */; };
 		D2E5C80D28F7F100982EB876 /* BoldMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E1E708BEBADEEC6BBCD3E2 /* BoldMutation.swift */; };
 		D4D588A9F4B765F21558D8B7 /* TK1Serializer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA3D9A8C4E9F19A62262219D /* TK1Serializer.swift */; };
+		D5E81298FAC3DAA908225E56 /* RenameSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9738701BB99E2A25A6B2F85 /* RenameSheet.swift */; };
 		D87846C8B4A004B93B646AB0 /* SetViewCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408E9C472E809997158FDC0B /* SetViewCommand.swift */; };
 		DD8BABA54508A0F3656EA66B /* HarnessActiveSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5AC25DB3CFE00FB09F46C3B /* HarnessActiveSink.swift */; };
 		E35DBCA24ED08AEA0EFF2087 /* PortableMindEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E608C92087DA2ED99857040 /* PortableMindEnvironment.swift */; };
@@ -168,6 +169,7 @@
 		A5CD85D99BA4A020FC41BBAF /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
 		A7E35D34EFC03E848507FF3C /* JWTPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JWTPayload.swift; sourceTree = "<group>"; };
 		A8F1E5A7D9544B0E06705EBD /* TabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarView.swift; sourceTree = "<group>"; };
+		A9738701BB99E2A25A6B2F85 /* RenameSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenameSheet.swift; sourceTree = "<group>"; };
 		ABB27C546F668F30E645724B /* DocumentTypeRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentTypeRegistry.swift; sourceTree = "<group>"; };
 		B038FAE2D09EC30C229AB152 /* MutationKeyboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationKeyboardTests.swift; sourceTree = "<group>"; };
 		B1E1E708BEBADEEC6BBCD3E2 /* BoldMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoldMutation.swift; sourceTree = "<group>"; };
@@ -306,6 +308,7 @@
 			isa = PBXGroup;
 			children = (
 				A20490162A17F73B0AF5A65B /* PickConnectorTreeView.swift */,
+				A9738701BB99E2A25A6B2F85 /* RenameSheet.swift */,
 				4EC88198BA8C116D84B727B4 /* SaveAsSheet.swift */,
 				0A190E11608DD8B5104500D3 /* TenantInitialsBadge.swift */,
 			);
@@ -692,6 +695,7 @@
 				38EB69A8B24FF9E4421EB31D /* PortableMindAPITypes.swift in Sources */,
 				02BDD53DDE0E484F5F578D49 /* PortableMindConnector.swift in Sources */,
 				E35DBCA24ED08AEA0EFF2087 /* PortableMindEnvironment.swift in Sources */,
+				D5E81298FAC3DAA908225E56 /* RenameSheet.swift in Sources */,
 				56408ED1057CE7107CBEEC31 /* RenderTypes.swift in Sources */,
 				C61F67695C45F2BC0469F5FD /* SaveAsSheet.swift in Sources */,
 				5B8EA51A489DEF23F9347DE7 /* SecurityScopedBookmarkStore.swift in Sources */,

@@ -327,6 +327,17 @@ final class HarnessCommandPoller {
                 name: params["name"] as? String,
                 resultPath: params["path"] as? String
                     ?? "/tmp/mdeditor-pm-new-file.json")
+        // D23 phase 4 — drive PMFileOperations.rename without the modal.
+        // {"action":"pm_rename","nodeID":"<connector-id>:file:N","newName":"foo.md","path":"..."}
+        // Looks up the node by id (loaded children only — driver should
+        // expand the parent first), calls rename, emits the refreshed
+        // node info on the result file.
+        case "pm_rename":
+            pmRename(
+                nodeID: params["nodeID"] as? String,
+                newName: params["newName"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-pm-rename.json")
         // D24 phase 5 — programmatic window-width resize so a driver can
         // exercise the debounced reflow without dragging the chrome.
         case "set_window_width":
@@ -1279,6 +1290,46 @@ final class HarnessCommandPoller {
                     "newNodeID": newNode.id,
                     "newNodePath": newNode.path,
                     "newNodeName": newNode.name
+                ]
+                if let data = try? JSONSerialization.data(
+                    withJSONObject: payload,
+                    options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: resultPath))
+                }
+            } catch {
+                Self.writeJSONErrorStatic(
+                    ["ok": false, "error": "\(error)"],
+                    to: resultPath)
+            }
+        }
+    }
+
+    // D23 phase 4 — drive PMFileOperations.rename without the modal.
+    private func pmRename(nodeID: String?, newName: String?, resultPath: String) {
+        try? Data().write(to: URL(fileURLWithPath: resultPath))
+        Task { @MainActor in
+            guard let nodeID, let newName else {
+                Self.writeJSONErrorStatic(
+                    ["error": "nodeID and newName required"],
+                    to: resultPath)
+                return
+            }
+            let store = WorkspaceStore.shared
+            guard let node = findNode(byID: nodeID, in: store) else {
+                Self.writeJSONErrorStatic(
+                    ["error": "nodeID not found in any connector tree",
+                     "nodeID": nodeID],
+                    to: resultPath)
+                return
+            }
+            do {
+                let refreshed = try await PMFileOperations.rename(
+                    node: node, to: newName, store: store)
+                let payload: [String: Any] = [
+                    "ok": true,
+                    "nodeID": refreshed.id,
+                    "newName": refreshed.name,
+                    "newPath": refreshed.path
                 ]
                 if let data = try? JSONSerialization.data(
                     withJSONObject: payload,

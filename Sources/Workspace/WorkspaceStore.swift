@@ -30,6 +30,19 @@ final class WorkspaceStore: ObservableObject {
     /// dismiss.
     @Published var saveAsRequest: SaveAsRequest?
 
+    /// D23 phase 4 — pending Rename request that drives the
+    /// RenameSheet via `WorkspaceView.sheet(item:)`. Set by
+    /// `requestRename(for:)`; cleared by the sheet on dismiss.
+    @Published var renameRequest: RenameRequest?
+
+    /// D23 phase 4 — payload for the RenameSheet. Carries the node
+    /// being renamed plus its current name (prefilled in the field).
+    struct RenameRequest: Identifiable {
+        let id = UUID()
+        let node: ConnectorNode
+        var initialName: String { node.name }
+    }
+
     /// D23 — payload for the SaveAsSheet. Carries the document being
     /// saved and the connector to default the picker to. `intent`
     /// distinguishes "save existing buffer to a new location" from
@@ -219,5 +232,16 @@ final class WorkspaceStore: ObservableObject {
         case .portableMind(let connectorID, _, _):
             return connectors.first { $0.id == connectorID }
         }
+    }
+
+    /// D23 phase 4 — open the RenameSheet for `node`. Picker not
+    /// involved (rename is in-place). The sheet calls
+    /// `PMFileOperations.rename(node:to:store:)` on Save.
+    func requestRename(for node: ConnectorNode) {
+        renameRequest = RenameRequest(node: node)
+    }
+
+    func dismissRename() {
+        renameRequest = nil
     }
 }

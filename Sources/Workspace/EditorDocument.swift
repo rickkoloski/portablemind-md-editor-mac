@@ -229,6 +229,18 @@ final class EditorDocument: ObservableObject, Identifiable {
         self.isReadOnly = false   // a freshly-created file is writable
     }
 
+    /// D23 phase 4 — replace the document's origin + connectorNode after
+    /// a Rename or Move mutation. The file's identity (LlmFile.id /
+    /// fileURL stem) is unchanged — only the displayed name / path /
+    /// parent. Buffer + lastSavedSource untouched; rename/move don't
+    /// change content. isReadOnly + url untouched.
+    @MainActor
+    func updateAfterRenameOrMove(newOrigin: Origin,
+                                 newConnectorNode: ConnectorNode?) {
+        self.origin = newOrigin
+        self.connectorNode = newConnectorNode
+    }
+
     private func writeAndRewatch(url: URL) throws {
         watcher.stop()
         defer { watcher.watch(url: url) }

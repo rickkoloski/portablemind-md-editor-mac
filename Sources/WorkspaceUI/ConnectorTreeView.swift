@@ -137,6 +137,23 @@ private struct ConnectorRowView: View {
                     viewModel.toggleRootShowsPath()
                 }
             }
+
+            // D23 phase 4 — Rename (PM file rows only). Connector
+            // protocol's renameFile is implemented for PortableMind
+            // (via API PATCH) and Local (via FileManager.moveItem).
+            // Phase 4 surfaces it for PM files first since that's the
+            // dogfood-blocking case; Local rename surfacing can come
+            // alongside Local Move (D23 deferred follow-ups). Disabled
+            // when canWrite returns false.
+            if node.kind == .file, node.connector is PortableMindConnector {
+                Divider()
+                Button("Rename…") {
+                    WorkspaceStore.shared.requestRename(for: node)
+                }
+                .disabled(!node.connector.canWrite(node))
+                .accessibilityIdentifier(
+                    AccessibilityIdentifiers.folderTreeRowRename(id: node.id))
+            }
         }
     }
 

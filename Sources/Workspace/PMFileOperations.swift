@@ -58,6 +58,60 @@ enum PMFileOperations {
         return newNode
     }
 
+    /// D23 phase 4 — rename `node` to `newName` in its current parent
+    /// directory. Returns the refreshed node from the server. Side
+    /// effects:
+    /// - Calls `node.connector.renameFile(node, to: newName)`.
+    /// - For any open tab whose `connectorNode.id` matches, updates
+    ///   `origin.displayPath` + `connectorNode` so the tab title
+    ///   refreshes. Buffer / caret / scroll preserved (Q3).
+    @discardableResult
+    static func rename(node: ConnectorNode,
+                       to newName: String,
+                       store: WorkspaceStore) async throws -> ConnectorNode {
+        let refreshed = try await node.connector.renameFile(node, to: newName)
+        updateOpenTabs(matching: refreshed, in: store)
+        return refreshed
+    }
+
+    /// D23 phase 5 — move `node` to a new parent directory. Returns the
+    /// refreshed node. Same tab-update side effects as rename.
+    @discardableResult
+    static func move(node: ConnectorNode,
+                     to newParent: ConnectorNode,
+                     store: WorkspaceStore) async throws -> ConnectorNode {
+        let refreshed = try await node.connector.moveFile(
+            node, to: newParent)
+        updateOpenTabs(matching: refreshed, in: store)
+        return refreshed
+    }
+
+    /// Walk every open tab; if any has `connectorNode.id == refreshed.id`,
+    /// update its origin.displayPath + connectorNode in place. Used by
+    /// rename + move to keep open tabs in sync after a server-side
+    /// mutation that didn't change the file's identity.
+    private static func updateOpenTabs(matching refreshed: ConnectorNode,
+                                       in store: WorkspaceStore) {
+        for doc in store.tabs.documents {
+            guard doc.connectorNode?.id == refreshed.id else { continue }
+            // Rename / move preserve fileID — only origin.displayPath
+            // (and connectorID, which is invariant) changes.
+            let newOrigin: EditorDocument.Origin
+            switch doc.origin {
+            case .local:
+                newOrigin = .local
+            case .portableMind(let cid, let fid, _):
+                newOrigin = .portableMind(
+                    connectorID: cid,
+                    fileID: fid,
+                    displayPath: refreshed.path)
+            }
+            doc.updateAfterRenameOrMove(
+                newOrigin: newOrigin,
+                newConnectorNode: refreshed)
+        }
+    }
+
     // MARK: - Helpers
 
     /// Translate a freshly-created `ConnectorNode` into the corresponding

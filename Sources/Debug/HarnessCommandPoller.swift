@@ -317,6 +317,16 @@ final class HarnessCommandPoller {
                 name: params["name"] as? String,
                 resultPath: params["path"] as? String
                     ?? "/tmp/mdeditor-pm-save-as.json")
+        // D23 phase 3 — drive PMFileOperations.newFile without the
+        // modal. {"action":"pm_new_file","parentNodeID":"...","name":"foo.md","path":"..."}
+        // Creates an empty file at parent/name and opens it as a new
+        // tab. Result file emits the new node + tab info.
+        case "pm_new_file":
+            pmNewFile(
+                parentNodeID: params["parentNodeID"] as? String,
+                name: params["name"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-pm-new-file.json")
         // D24 phase 5 — programmatic window-width resize so a driver can
         // exercise the debounced reflow without dragging the chrome.
         case "set_window_width":
@@ -1269,6 +1279,47 @@ final class HarnessCommandPoller {
                     "newNodeID": newNode.id,
                     "newNodePath": newNode.path,
                     "newNodeName": newNode.name
+                ]
+                if let data = try? JSONSerialization.data(
+                    withJSONObject: payload,
+                    options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: resultPath))
+                }
+            } catch {
+                Self.writeJSONErrorStatic(
+                    ["ok": false, "error": "\(error)"],
+                    to: resultPath)
+            }
+        }
+    }
+
+    // D23 phase 3 — drive PMFileOperations.newFile without the modal.
+    private func pmNewFile(parentNodeID: String?, name: String?, resultPath: String) {
+        try? Data().write(to: URL(fileURLWithPath: resultPath))
+        Task { @MainActor in
+            guard let parentNodeID, let name else {
+                Self.writeJSONErrorStatic(
+                    ["error": "parentNodeID and name required"],
+                    to: resultPath)
+                return
+            }
+            let store = WorkspaceStore.shared
+            guard let parent = findNode(byID: parentNodeID, in: store) else {
+                Self.writeJSONErrorStatic(
+                    ["error": "parentNodeID not found in any connector tree",
+                     "parentNodeID": parentNodeID],
+                    to: resultPath)
+                return
+            }
+            do {
+                let newNode = try await PMFileOperations.newFile(
+                    in: parent, name: name, store: store)
+                let payload: [String: Any] = [
+                    "ok": true,
+                    "newNodeID": newNode.id,
+                    "newNodePath": newNode.path,
+                    "newNodeName": newNode.name,
+                    "newTabFocusedIndex": store.tabs.focusedIndex ?? -1
                 ]
                 if let data = try? JSONSerialization.data(
                     withJSONObject: payload,

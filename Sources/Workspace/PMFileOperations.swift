@@ -38,6 +38,26 @@ enum PMFileOperations {
         return newNode
     }
 
+    /// D23 phase 3 — create a new empty file at `parent / name` and
+    /// open it as a new tab in `store.tabs`. Different from `saveAs`
+    /// in that this doesn't operate on an existing buffer — the new
+    /// tab starts empty and the user types into it.
+    ///
+    /// Returns the new node so callers can splice it into the sidebar
+    /// tree (Q7 follow-up).
+    @discardableResult
+    static func newFile(in parent: ConnectorNode,
+                        name: String,
+                        store: WorkspaceStore) async throws -> ConnectorNode {
+        let newNode = try await parent.connector.createFile(
+            in: parent, name: name, bytes: Data())
+        // openFromConnector handles origin construction, isReadOnly
+        // (from connector.canWrite), de-dupe, and focus. Empty source
+        // for a brand-new file.
+        _ = store.tabs.openFromConnector(content: "", node: newNode)
+        return newNode
+    }
+
     // MARK: - Helpers
 
     /// Translate a freshly-created `ConnectorNode` into the corresponding

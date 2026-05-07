@@ -156,10 +156,18 @@ struct SaveAsSheet: View {
         errorMessage = nil
         defer { isSaving = false }
         do {
-            _ = try await PMFileOperations.saveAs(
-                doc: request.document,
-                to: target,
-                name: filename)
+            switch request.intent {
+            case .saveAs:
+                guard let doc = request.document else {
+                    errorMessage = "Internal error: Save As without source document"
+                    return
+                }
+                _ = try await PMFileOperations.saveAs(
+                    doc: doc, to: target, name: filename)
+            case .newFile:
+                _ = try await PMFileOperations.newFile(
+                    in: target, name: filename, store: workspace)
+            }
             workspace.dismissSaveAs()
         } catch let cerr as ConnectorError {
             errorMessage = describe(cerr)

@@ -108,6 +108,13 @@ struct MdEditorApp: App {
             CommandGroup(after: .newItem) {
                 Button("Open Folder…") { openFolder() }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
+                // D23 phase 3 — New PortableMind File… opens the
+                // SaveAsSheet in newFile mode (empty buffer; default
+                // filename "Untitled.md"). On Save the modal creates
+                // the file and opens it as a new tab.
+                Button("New PortableMind File…") { newPortableMindFile() }
+                    .keyboardShortcut("n", modifiers: [.command, .option])
+                    .disabled(!hasPortableMindConnector)
             }
             // D14: Save / Save As. Operates on the focused document.
             // D18 phase 5: disabled when the focused tab is read-only
@@ -205,6 +212,18 @@ struct MdEditorApp: App {
         } catch {
             presentSaveError(error)
         }
+    }
+
+    /// D23 phase 3 — New PortableMind File. Opens the SaveAsSheet in
+    /// newFile mode; on Save, the modal creates an empty file and
+    /// opens it as a new tab. Disabled when no PortableMindConnector
+    /// is loaded.
+    private func newPortableMindFile() {
+        workspace.requestNewFile()
+    }
+
+    private var hasPortableMindConnector: Bool {
+        workspace.connectors.contains { $0 is PortableMindConnector }
     }
 
     private func saveAsFocused() {

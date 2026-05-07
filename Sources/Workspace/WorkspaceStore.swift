@@ -37,7 +37,9 @@ final class WorkspaceStore: ObservableObject {
     /// New File flow.
     struct SaveAsRequest: Identifiable {
         let id = UUID()
-        let document: EditorDocument
+        /// The document being Save-As'd. nil for `intent == .newFile`
+        /// (the new file's content starts empty; no source document).
+        let document: EditorDocument?
         let initialFilename: String
         let initialConnector: any Connector
         let intent: Intent
@@ -190,6 +192,24 @@ final class WorkspaceStore: ObservableObject {
     /// or successful Save).
     func dismissSaveAs() {
         saveAsRequest = nil
+    }
+
+    /// D23 phase 3 — open the SaveAsSheet in `newFile` mode. Picker
+    /// defaults to the first PortableMindConnector (PM is the primary
+    /// target for "New …"); falls back to the first available
+    /// connector if no PM is loaded. The new file starts with an
+    /// empty buffer; on Save the modal calls
+    /// `PMFileOperations.newFile(in:name:store:)` which opens it as
+    /// a new tab.
+    func requestNewFile() {
+        let connector = connectors.first(where: { $0 is PortableMindConnector })
+            ?? connectors.first
+        guard let connector else { return }
+        saveAsRequest = SaveAsRequest(
+            document: nil,
+            initialFilename: "Untitled.md",
+            initialConnector: connector,
+            intent: .newFile)
     }
 
     private func matchingConnector(for doc: EditorDocument) -> (any Connector)? {

@@ -287,12 +287,12 @@ enum TK1TableBuilder {
 
     // MARK: - Column width
 
-    /// D24.2 phase 1: per-column applied widths still use the legacy
-    /// `TableColumnDistribution.distribute(...)` body (D24's lock-in +
-    /// flex algorithm) but feed it `maxContent` extracted from the new
-    /// `(min, max)` measurement. Phase 2 swaps the distribute body for
-    /// the Q8 + slack-proportional algorithm. Behavior unchanged in this
-    /// phase — same widths as v0.6.1.
+    /// D24.2 phase 2: per-column applied widths via the Q8 + slack-
+    /// proportional algorithm. Each column's `maxContent` is pre-capped
+    /// at `viewportWidth` per D24's Q8 (viewport cap, distinct from
+    /// D24.2's narrow-threshold Q8). Distribution target subtracts the
+    /// per-cell framing overhead × column count so the rendered table
+    /// fits inside `viewportWidth` end-to-end.
     private static func computeColumnWidths(
         headerCells: [Markdown.Table.Cell],
         bodyCells: [[Markdown.Table.Cell]],
@@ -300,21 +300,24 @@ enum TK1TableBuilder {
         viewportWidth: CGFloat
     ) -> [CGFloat] {
         guard columnCount > 0 else { return [] }
-        var naturals: [CGFloat] = Array(repeating: 0, count: columnCount)
+        let framingTotal = cellFramingOverhead * CGFloat(columnCount)
+        let target = max(0, viewportWidth - framingTotal)
+        var measurements: [ColumnContentMeasurement] = []
+        measurements.reserveCapacity(columnCount)
         for col in 0..<columnCount {
             let (m, _) = columnMeasurement(
                 headerCells: headerCells,
                 bodyCells: bodyCells,
                 column: col)
-            // D24 Q8 (viewport cap): pre-cap each column's max at viewport
-            // before distribution so a single super-long URL can't push
-            // the table past viewport.
-            naturals[col] = min(m.maxContent, viewportWidth)
+            // D24 Q8 (viewport cap): pre-cap maxContent at distribution
+            // target so a single super-long URL can't push the table
+            // past viewport. minContent is content-derived; never capped.
+            measurements.append(ColumnContentMeasurement(
+                minContent: min(m.minContent, target),
+                maxContent: min(m.maxContent, target)))
         }
-        let framingTotal = cellFramingOverhead * CGFloat(columnCount)
-        let target = max(0, viewportWidth - framingTotal)
         return TableColumnDistribution.distribute(
-            naturalWidths: naturals,
+            measurements: measurements,
             viewportWidth: target)
     }
 

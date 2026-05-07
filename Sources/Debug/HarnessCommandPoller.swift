@@ -1275,32 +1275,37 @@ final class HarnessCommandPoller {
         let measurements = TK1TableBuilder.measureNaturalWidths(
             table: tables[tableIndex], nsSource: nsSource)
         let n = measurements.count
-        let cappedMaxes: [CGFloat] = measurements.map {
-            min($0.maxWidth, viewportWidth)
-        }
         let framingOverhead = TK1TableBuilder.cellFramingOverhead * CGFloat(n)
         let target = max(0, viewportWidth - framingOverhead)
-        // D24.2 phase 1: distribution still uses the legacy single-natural
-        // path (D24's lock-in + flex). Phase 2 swaps for Q8 + slack.
+        // D24.2 phase 2: Q8 viewport cap on maxContent; mins capped too
+        // for symmetry. Same wiring TK1TableBuilder.computeColumnWidths
+        // uses, so the harness reports exactly what the renderer produces.
+        let cappedMeasurements: [ColumnContentMeasurement] = measurements.map { m in
+            ColumnContentMeasurement(
+                minContent: min(m.minWidth, target),
+                maxContent: min(m.maxWidth, target))
+        }
         let applied = TableColumnDistribution.distribute(
-            naturalWidths: cappedMaxes,
+            measurements: cappedMeasurements,
             viewportWidth: target)
 
         var columns: [[String: Any]] = []
         columns.reserveCapacity(n)
         for i in 0..<n {
             let m = measurements[i]
-            let cap = cappedMaxes[i]
+            let cap = cappedMeasurements[i]
             let app = i < applied.count ? applied[i] : 0
             // "locked" means the applied width matches the capped max
-            // (within 0.5pt tolerance) — column got its full max ask.
-            let locked = abs(app - cap) < 0.5
+            // (within 0.5pt tolerance) — column got its full max ask
+            // (whether via Q8 pre-lock or fits-naturally).
+            let locked = abs(app - cap.maxContent) < 0.5
             columns.append([
                 "column": i,
                 "minWidthPt": Double(m.minWidth),
                 "maxWidthPt": Double(m.maxWidth),
                 "slackPt": Double(m.slack),
-                "cappedMaxPt": Double(cap),
+                "cappedMinPt": Double(cap.minContent),
+                "cappedMaxPt": Double(cap.maxContent),
                 "appliedWidthPt": Double(app),
                 "locked": locked,
                 "flex": !locked

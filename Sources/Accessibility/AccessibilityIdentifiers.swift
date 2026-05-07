@@ -59,6 +59,11 @@ enum AccessibilityIdentifiers {
         "md-editor.sidebar.folder-tree.row.rename:\(id)"
     }
 
+    /// D23 phase 5 — context-menu Move to… item per row.
+    static func folderTreeRowMove(id: String) -> String {
+        "md-editor.sidebar.folder-tree.row.move:\(id)"
+    }
+
     static func tabButton(documentID: UUID) -> String {
         "md-editor.tabs.tab:\(documentID.uuidString)"
     }

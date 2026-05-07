@@ -43,6 +43,17 @@ final class WorkspaceStore: ObservableObject {
         var initialName: String { node.name }
     }
 
+    /// D23 phase 5 — pending Move request driving MoveSheet.
+    @Published var moveRequest: MoveRequest?
+
+    /// D23 phase 5 — payload for MoveSheet. Carries the node being
+    /// moved; the sheet's tree picker uses node.connector to know
+    /// which tree to show.
+    struct MoveRequest: Identifiable {
+        let id = UUID()
+        let node: ConnectorNode
+    }
+
     /// D23 — payload for the SaveAsSheet. Carries the document being
     /// saved and the connector to default the picker to. `intent`
     /// distinguishes "save existing buffer to a new location" from
@@ -243,5 +254,16 @@ final class WorkspaceStore: ObservableObject {
 
     func dismissRename() {
         renameRequest = nil
+    }
+
+    /// D23 phase 5 — open the MoveSheet for `node`. The sheet's tree
+    /// picker uses node.connector's tree view-model. On Save the
+    /// modal calls `PMFileOperations.move(node:to:store:)`.
+    func requestMove(for node: ConnectorNode) {
+        moveRequest = MoveRequest(node: node)
+    }
+
+    func dismissMove() {
+        moveRequest = nil
     }
 }

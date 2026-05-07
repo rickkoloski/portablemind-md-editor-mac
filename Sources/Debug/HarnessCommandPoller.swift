@@ -338,6 +338,17 @@ final class HarnessCommandPoller {
                 newName: params["newName"] as? String,
                 resultPath: params["path"] as? String
                     ?? "/tmp/mdeditor-pm-rename.json")
+        // D23 phase 5 — drive PMFileOperations.move without the modal.
+        // {"action":"pm_move","nodeID":"<connector-id>:file:N",
+        //   "newParentNodeID":"<connector-id>:dir:N","path":"..."}
+        // Both nodeID and newParentNodeID resolved via the connector
+        // tree view-model (loaded children only).
+        case "pm_move":
+            pmMove(
+                nodeID: params["nodeID"] as? String,
+                newParentNodeID: params["newParentNodeID"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-pm-move.json")
         // D24 phase 5 — programmatic window-width resize so a driver can
         // exercise the debounced reflow without dragging the chrome.
         case "set_window_width":
@@ -1290,6 +1301,53 @@ final class HarnessCommandPoller {
                     "newNodeID": newNode.id,
                     "newNodePath": newNode.path,
                     "newNodeName": newNode.name
+                ]
+                if let data = try? JSONSerialization.data(
+                    withJSONObject: payload,
+                    options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: resultPath))
+                }
+            } catch {
+                Self.writeJSONErrorStatic(
+                    ["ok": false, "error": "\(error)"],
+                    to: resultPath)
+            }
+        }
+    }
+
+    // D23 phase 5 — drive PMFileOperations.move without the modal.
+    private func pmMove(nodeID: String?, newParentNodeID: String?, resultPath: String) {
+        try? Data().write(to: URL(fileURLWithPath: resultPath))
+        Task { @MainActor in
+            guard let nodeID, let newParentNodeID else {
+                Self.writeJSONErrorStatic(
+                    ["error": "nodeID and newParentNodeID required"],
+                    to: resultPath)
+                return
+            }
+            let store = WorkspaceStore.shared
+            guard let node = findNode(byID: nodeID, in: store) else {
+                Self.writeJSONErrorStatic(
+                    ["error": "nodeID not found",
+                     "nodeID": nodeID],
+                    to: resultPath)
+                return
+            }
+            guard let newParent = findNode(byID: newParentNodeID, in: store) else {
+                Self.writeJSONErrorStatic(
+                    ["error": "newParentNodeID not found",
+                     "newParentNodeID": newParentNodeID],
+                    to: resultPath)
+                return
+            }
+            do {
+                let refreshed = try await PMFileOperations.move(
+                    node: node, to: newParent, store: store)
+                let payload: [String: Any] = [
+                    "ok": true,
+                    "nodeID": refreshed.id,
+                    "newPath": refreshed.path,
+                    "name": refreshed.name
                 ]
                 if let data = try? JSONSerialization.data(
                     withJSONObject: payload,

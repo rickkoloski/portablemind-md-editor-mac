@@ -27,6 +27,13 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.renameRequest) { request in
             RenameSheet(request: request, workspace: workspace)
         }
+        // D23 phase 5 — Move modal sheet. Tree picker variant of
+        // SaveAsSheet (no filename field). Bound to
+        // workspace.moveRequest; driven by sidebar context menu
+        // (right-click → Move to…) on PM file rows.
+        .sheet(item: $workspace.moveRequest) { request in
+            MoveSheet(request: request, workspace: workspace)
+        }
     }
 
     @ViewBuilder

@@ -133,4 +133,5 @@ Manual test plan covers each operation × (success / each error mode). Harness r
 12. D23 manual test plan walked end-to-end with results recorded.
 13. D23 COMPLETE doc references spec, plan, prompt, manual test plan, harness actions, any backend PR.
 14. Roadmap reflects D23 ✅.
-15. Branch merged to `main`; tag `v0.7` annotated and pushed (D23 ships a meaningful chunk of PM-integration capability — minor-version bump from v0.6.x).
+15. **Deferred items carried forward.** Spec §"Out of scope for v1" enumerates 10 follow-ups (Delete, drag-drop, multi-select, cross-tenant moves, Save As → Local from PM, folder CRUD, overwrite prompts, templates, recents, realtime sync). Phase 6 COMPLETE doc §Follow-Up Items lists them all with proposed sequencing notes; the roadmap's "Candidates (unscheduled)" gets the new entries added so they're trackable as future deliverables.
+16. Branch merged to `main`; tag `v0.7` annotated and pushed (D23 ships a meaningful chunk of PM-integration capability — minor-version bump from v0.6.x).

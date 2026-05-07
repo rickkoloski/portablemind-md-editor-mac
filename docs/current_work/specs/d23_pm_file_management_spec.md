@@ -146,17 +146,24 @@ Out of scope (deferred to future deliverables):
 
 ---
 
-## Out of scope (deferred)
+## Out of scope for v1 (deferred to future phases — committed, not abandoned)
 
-- **Delete PM file** — separate, higher-stakes deliverable.
-- **Drag-drop move** in the sidebar — significant UX scope for v1.
-- **Multi-select operations** — single-node only in v1.
-- **Cross-tenant moves** — single-tenant tree picker in v1.
-- **Save As → Local** from a PM tab (forking a copy to disk) — can ship later if dogfood asks.
-- **New Folder / directory CRUD** — files only in v1.
-- **Overwrite-on-conflict** prompt for Save As when a sibling already exists — v1 errors out.
-- **Templates** for New File — empty buffer in v1.
-- **Recent locations** in the tree picker — straight tree only in v1.
+These are intentional v1 omissions, **not** decisions to never ship them. Each is a known follow-up; rough sequencing thinking below. Filed for forward planning.
+
+| Item | Sketch of follow-up scope | Trigger / sequencing |
+|---|---|---|
+| **Delete PM file** | Separate higher-stakes deliverable: confirmation dialog, optional Trash semantics, undo. Sidebar context menu + ⌫ shortcut. | Likely D23.1 — small follow-up directly after v1 once dogfood reaches "I want to clean up old drafts" friction. |
+| **Drag-drop move in sidebar tree** | Drag previews, drop validation (disallow drop onto file, disallow drop into self / descendant), multi-select compatible. AppKit drag-drop on NSOutlineView-equivalent. | After Move via context menu has a few weeks of dogfood — drag-drop is ergonomic polish on top of a working code path. |
+| **Multi-select operations** | Selection model on the sidebar tree; multi-rename (probably nope — pattern-based?); multi-move; multi-delete. | After Delete lands. Lower priority unless dogfood surfaces a "I have 20 stale drafts to move/delete" pattern. |
+| **Cross-tenant moves** | Decompose into create-in-target + delete-from-source. Authorization boundaries. Tree picker shows cross-tenant trees with the existing badge UI. | Pairs naturally with D20 (connection-management UX) — once multi-connection is real, cross-tenant moves become a natural extension. |
+| **Save As → Local from a PM tab** | "Fork a copy to disk." Same modal, Local target option already in v1's design — can be enabled with a small allowance change. | Light lift; ship if dogfood asks. Probably bundled with a future D23.x. |
+| **New Folder / directory CRUD** | Connector additions (`createDirectory`, `renameDirectory`, `moveDirectory`, `deleteDirectory`). Sidebar context-menu surface. | Significant scope; likely its own deliverable (D26 or similar) once file-level CRUD matures. |
+| **Overwrite-on-conflict prompt** for Save As when a sibling already exists | Inline confirmation dialog ("Replace existing 'foo.md'?") with explicit Overwrite / Cancel buttons. | Add when v1's "error and retry" friction becomes visible in dogfood. Easy retrofit. |
+| **Templates for New File** | Configurable per-tenant or per-project starter content (e.g., `# Title\n\n## Decision log\n...`). | Templates are low-value until conventions stabilize; ship when patterns emerge. |
+| **Recent locations** in the tree picker | Top-of-picker shortcut to recently-saved-into directories. Per-user setting. | Ergonomic polish; ship when picker friction shows up in dogfood. |
+| **Realtime sync** of rename/move done in another client | Currently relies on D19's conflict-detection-on-save as the safety net. Realtime would push the rename/move into open editors via PM's realtime channel. | Cross-cutting concern with broader PM realtime work — not D23-bounded. |
+
+Each item carries forward as a candidate in the roadmap's "Candidates (unscheduled)" section after D23 ships. Phase 6's COMPLETE doc lists them in §Follow-Up Items so they don't get lost.
 
 ---
 

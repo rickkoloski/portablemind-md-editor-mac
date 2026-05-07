@@ -124,6 +124,101 @@ final class LocalConnector: Connector {
         return node
     }
 
+    // MARK: - D23 file management
+
+    func createFile(in parent: ConnectorNode,
+                    name: String,
+                    bytes: Data) async throws -> ConnectorNode {
+        guard parent.kind == .directory else {
+            throw ConnectorError.unsupported(
+                "createFile parent must be a directory")
+        }
+        let parentURL = URL(fileURLWithPath: parent.path)
+        let target = parentURL.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: target.path) {
+            throw ConnectorError.server(
+                status: 422,
+                message: "A file named '\(name)' already exists in '\(parent.name)'")
+        }
+        do {
+            try bytes.write(to: target, options: .atomic)
+        } catch {
+            throw ConnectorError.network(error)
+        }
+        return ConnectorNode(
+            id: "\(id):\(target.path)",
+            name: name,
+            path: target.path,
+            kind: .file,
+            fileCount: nil,
+            tenant: nil,
+            isSupported: isSupportedFile(target),
+            connector: self)
+    }
+
+    func renameFile(_ node: ConnectorNode,
+                    to newName: String) async throws -> ConnectorNode {
+        guard node.kind == .file else {
+            throw ConnectorError.unsupported(
+                "renameFile called on directory node (file-only in v1)")
+        }
+        let src = URL(fileURLWithPath: node.path)
+        let dst = src.deletingLastPathComponent().appendingPathComponent(newName)
+        if FileManager.default.fileExists(atPath: dst.path) {
+            throw ConnectorError.server(
+                status: 422,
+                message: "A file named '\(newName)' already exists in this directory")
+        }
+        do {
+            try FileManager.default.moveItem(at: src, to: dst)
+        } catch {
+            throw ConnectorError.network(error)
+        }
+        return ConnectorNode(
+            id: "\(id):\(dst.path)",
+            name: newName,
+            path: dst.path,
+            kind: .file,
+            fileCount: nil,
+            tenant: nil,
+            isSupported: isSupportedFile(dst),
+            connector: self)
+    }
+
+    func moveFile(_ node: ConnectorNode,
+                  to newParent: ConnectorNode) async throws -> ConnectorNode {
+        guard node.kind == .file else {
+            throw ConnectorError.unsupported(
+                "moveFile called on directory node (file-only in v1)")
+        }
+        guard newParent.kind == .directory else {
+            throw ConnectorError.unsupported(
+                "moveFile target must be a directory")
+        }
+        let src = URL(fileURLWithPath: node.path)
+        let parentURL = URL(fileURLWithPath: newParent.path)
+        let dst = parentURL.appendingPathComponent(node.name)
+        if FileManager.default.fileExists(atPath: dst.path) {
+            throw ConnectorError.server(
+                status: 422,
+                message: "A file named '\(node.name)' already exists in '\(newParent.name)'")
+        }
+        do {
+            try FileManager.default.moveItem(at: src, to: dst)
+        } catch {
+            throw ConnectorError.network(error)
+        }
+        return ConnectorNode(
+            id: "\(id):\(dst.path)",
+            name: node.name,
+            path: dst.path,
+            kind: .file,
+            fileCount: nil,
+            tenant: nil,
+            isSupported: isSupportedFile(dst),
+            connector: self)
+    }
+
     // MARK: - Walk
 
     private func walkChildren(of url: URL) -> [ConnectorNode] {

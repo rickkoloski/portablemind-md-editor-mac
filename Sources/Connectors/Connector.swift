@@ -97,6 +97,42 @@ protocol Connector: AnyObject, Sendable {
     func saveFile(_ node: ConnectorNode,
                   bytes: Data,
                   force: Bool) async throws -> ConnectorNode
+
+    // MARK: - D23 file management
+
+    /// Create a new file at the given parent directory with `bytes` as
+    /// initial content. Connectors that don't support creation throw
+    /// `.unsupported`.
+    ///
+    /// - Parameter parent: a `.directory` ConnectorNode under which the
+    ///   new file should live. The new file's `name` is set to `name`.
+    /// - Returns: the resulting file node, freshly read from the
+    ///   server / filesystem.
+    /// - Throws: `.unsupported` if the connector doesn't support create;
+    ///   `.writeForbidden` if the destination is read-only;
+    ///   `.storageQuotaExceeded` if the create would exceed the tenant's
+    ///   document storage limit (PortableMind only); `.server` /
+    ///   `.network` for transport-level failures; `.unsupported` with
+    ///   message "name conflict" if a sibling with `name` already exists
+    ///   (server returns 422 — Q5 says we don't auto-rename or overwrite).
+    func createFile(in parent: ConnectorNode,
+                    name: String,
+                    bytes: Data) async throws -> ConnectorNode
+
+    /// Rename `node` to `newName` in its current parent directory.
+    /// Returns the refreshed node.
+    /// - Throws: same surface as `createFile`, plus `.unsupported` for
+    ///   directory rename in v1 (file-only).
+    func renameFile(_ node: ConnectorNode,
+                    to newName: String) async throws -> ConnectorNode
+
+    /// Move `node` into a new parent directory. The file's name is
+    /// preserved. Returns the refreshed node.
+    /// - Throws: same surface as `createFile`. Cross-tenant moves are
+    ///   not supported in v1; throws `.unsupported` if `newParent.tenant`
+    ///   differs from `node.tenant`.
+    func moveFile(_ node: ConnectorNode,
+                  to newParent: ConnectorNode) async throws -> ConnectorNode
 }
 
 extension Connector {
@@ -109,6 +145,27 @@ extension Connector {
                   force: Bool) async throws -> ConnectorNode {
         throw ConnectorError.unsupported(
             "saveFile not implemented by \(type(of: self))")
+    }
+
+    // MARK: - D23 defaults
+
+    func createFile(in parent: ConnectorNode,
+                    name: String,
+                    bytes: Data) async throws -> ConnectorNode {
+        throw ConnectorError.unsupported(
+            "createFile not implemented by \(type(of: self))")
+    }
+
+    func renameFile(_ node: ConnectorNode,
+                    to newName: String) async throws -> ConnectorNode {
+        throw ConnectorError.unsupported(
+            "renameFile not implemented by \(type(of: self))")
+    }
+
+    func moveFile(_ node: ConnectorNode,
+                  to newParent: ConnectorNode) async throws -> ConnectorNode {
+        throw ConnectorError.unsupported(
+            "moveFile not implemented by \(type(of: self))")
     }
 }
 

@@ -64,11 +64,11 @@ Continues the harness-first pattern from D18/D19/D24:
   ```
   Default implementations throw `.unsupported`. `LocalConnector` provides FileManager-backed implementations. `PortableMindConnector` provides API-backed implementations.
 
-- `Sources/Connectors/PortableMind/PortableMindAPIClient.swift` — new methods mirroring `updateFile`'s shape:
+- `Sources/Connectors/PortableMind/PortableMindAPIClient.swift` — new methods mirroring `updateFile`'s shape (path-based per spec Q9 correction):
   ```swift
-  func createFile(directoryID: Int, name: String, bytes: Data) async throws -> LlmFile
+  func createFile(directoryPath: String, name: String, bytes: Data) async throws -> LlmFile
   func renameFile(fileID: Int, newName: String) async throws -> LlmFile
-  func moveFile(fileID: Int, newDirectoryID: Int) async throws -> LlmFile
+  func moveFile(fileID: Int, newDirectoryPath: String) async throws -> LlmFile
   ```
 
 - `Sources/Connectors/PortableMind/PortableMindConnector.swift` — implement the protocol methods; populate the cached tree with the new/changed nodes.

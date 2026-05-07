@@ -218,6 +218,80 @@ final class PortableMindConnector: Connector {
         return fileID
     }
 
+    // MARK: - D23 file management
+
+    /// Build a `ConnectorNode` from a server FileDTO. The directory_path
+    /// (or full_path) drives the displayed path; tenant + supported
+    /// flags mirror what `children(of:)` produces. Used by create /
+    /// rename / move to refresh the open tab's connectorNode after the
+    /// server commits the change.
+    private func node(from dto: FileDTO) -> ConnectorNode {
+        let parentPath = dto.directory_path ?? "/"
+        let path = dto.full_path
+            ?? (parentPath.hasSuffix("/")
+                ? "\(parentPath)\(dto.title)"
+                : "\(parentPath)/\(dto.title)")
+        return ConnectorNode(
+            id: "\(id):file:\(dto.id)",
+            name: dto.title,
+            path: path,
+            kind: .file,
+            fileCount: nil,
+            tenant: tenantInfo(from: dto),
+            isSupported: isSupportedFile(dto),
+            lastSeenUpdatedAt: dto.updated_at.flatMap(
+                ISO8601DateFormatter.fractional.date(from:)),
+            connector: self)
+    }
+
+    func createFile(in parent: ConnectorNode,
+                    name: String,
+                    bytes: Data) async throws -> ConnectorNode {
+        guard parent.kind == .directory else {
+            throw ConnectorError.unsupported(
+                "createFile parent must be a directory")
+        }
+        let dto = try await api.createFile(
+            directoryPath: parent.path,
+            name: name,
+            bytes: bytes)
+        return node(from: dto)
+    }
+
+    func renameFile(_ node: ConnectorNode,
+                    to newName: String) async throws -> ConnectorNode {
+        guard node.kind == .file else {
+            throw ConnectorError.unsupported(
+                "renameFile called on directory node (file-only in v1)")
+        }
+        let fileID = try Self.fileID(from: node, connectorID: id)
+        let dto = try await api.renameFile(fileID: fileID, newName: newName)
+        return self.node(from: dto)
+    }
+
+    func moveFile(_ node: ConnectorNode,
+                  to newParent: ConnectorNode) async throws -> ConnectorNode {
+        guard node.kind == .file else {
+            throw ConnectorError.unsupported(
+                "moveFile called on directory node (file-only in v1)")
+        }
+        guard newParent.kind == .directory else {
+            throw ConnectorError.unsupported(
+                "moveFile target must be a directory")
+        }
+        // Q6 — cross-tenant moves not supported in v1. The tree picker
+        // disallows it; this is the connector-level guard.
+        if let src = node.tenant, let dst = newParent.tenant,
+           src.id != dst.id {
+            throw ConnectorError.unsupported(
+                "cross-tenant moves not supported in v1")
+        }
+        let fileID = try Self.fileID(from: node, connectorID: id)
+        let dto = try await api.moveFile(
+            fileID: fileID, newDirectoryPath: newParent.path)
+        return self.node(from: dto)
+    }
+
     // MARK: - Helpers
 
     private func tenantInfo(from dto: DirectoryDTO) -> TenantInfo? {

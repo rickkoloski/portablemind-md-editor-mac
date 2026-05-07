@@ -5,6 +5,8 @@
 **Created:** 2026-05-05
 **Walks:** all spec acceptance criteria + edge cases + D17 regression spot-check.
 
+> **Note 2026-05-06:** D24.2 (`docs/current_work/specs/d24.2_slack_proportional_columns_spec.md`) replaced D24's lock-in + flex algorithm with Q8 narrow-column threshold lock-in + slack-proportional distribution, and fixed a latent `lineFragmentPadding` bug. Specific column-width numbers in §A1, §A2, §B1–B6 below reflect D24's algorithm (v0.6) and have shifted under D24.2 (v0.6.2). Current numbers and the regression evidence for the v0.6→v0.6.2 transition are in `docs/current_work/stepwise_results/d24.2_slack_proportional_columns_COMPLETE.md` §Smoke evidence. The spec acceptance-criterion shapes (locks vs flex, regime detection, harness verification) remain valid; only the per-column applied-width numerics changed. See §7 below for the D24.2 regression-evidence walk.
+
 ---
 
 ## Setup
@@ -252,3 +254,56 @@ Most of this plan is already harness-driven. The pieces worth promoting to runna
 3. **Resize reflow** — could become an XCUITest that sets the window frame, sleeps past the debounce, asserts the dump_table_layout's appliedWidthPt changed.
 
 Promoting (2) and (3) needs the existing UI test target's accessibilityIdentifier wiring to expose harness-result paths. Out of scope for D24; a candidate for a follow-up test infra deliverable.
+
+---
+
+## §7. D24.2 regression evidence (added 2026-05-06)
+
+Bug Rick reported on D24's ship day: "Date column wraps '2026-04-28' mid-string at narrow editor viewport, even though there's clearly room." Fixed by D24.2 (Q8 narrow-column lock-in + lineFragmentPadding compensation). This section is the canonical regression walk against the running editor.
+
+### A. Cold-launch reproduction (pre-D24.2 → fail; D24.2 → pass)
+
+```bash
+osascript -e 'tell application "MdEditor" to quit' ; sleep 2
+open ./.build-xcode/Build/Products/Debug/MdEditor.app && sleep 2
+open "md-editor://open?path=/tmp/d24_phase2_test.md" && sleep 2
+```
+
+Visual: open Table A. Pre-D24.2: dates appear wrapped ("2026-04-2" / "8" or similar) when window is narrow. D24.2: dates render on a single line throughout the reachable viewport range.
+
+### B. Drag-resize stability
+
+Slowly drag the editor's right edge inward and outward. Pre-D24.2: dates flicker between wrapped and un-wrapped during the drag. D24.2: dates stay single-line through the entire drag.
+
+### C. Harness sweep
+
+Drive a series of `set_window_width` + `dump_table_layout` pairs and confirm Date.applied stays at max (~86.5pt) at every viewport.
+
+```bash
+for w in 1200 800 700; do
+  echo "{\"action\":\"set_window_width\",\"pt\":$w}" > /tmp/cmd.tmp && \
+    mv /tmp/cmd.tmp /tmp/mdeditor-command.json
+  sleep 0.4
+  echo '{"action":"dump_table_layout","tableIndex":0,"path":"/tmp/r.json"}' > /tmp/cmd.tmp && \
+    mv /tmp/cmd.tmp /tmp/mdeditor-command.json
+  sleep 0.3
+  jq -r '.viewportWidth as $vp | .regime as $r | .columns | map("c\(.column)=\(.appliedWidthPt)") | "  win=" + (env.w // "?") + " vp=\($vp) regime=\($r) " + (. | join(" "))' /tmp/r.json
+done
+```
+
+Expected at every viewport above the overflow regime:
+- Date applied = ~86.5pt, locked=true (Q8 lock — `max ≤ narrowThreshold=120`)
+- Decision applied = flexes per slack distribution
+- Decided by applied = ~86.5pt, locked=true (also Q8)
+- regime = "slack" (or "fits" if window is wide enough that sumMax ≤ target)
+
+Smoke evidence captured 2026-05-06 in D24.2 COMPLETE doc §Smoke evidence.
+
+### D. Failure pointers (D24.2-specific)
+
+| Symptom | Look at |
+|---|---|
+| Date wrapping returns | `TK1TableBuilder.cellLineFragmentPadding` constant — confirm it matches the `NSTextContainer.lineFragmentPadding` value in `EditorContainer`. Default 5pt. |
+| Date column locked but visually narrower than expected | `TK1TableBuilder.makeCell` — verify `block.setContentWidth(contentWidth + 2 * cellLineFragmentPadding, ...)`. |
+| Q8 over-locks (narrow cols starve out a flex col) | `TableColumnDistribution.distribute` Q8 loop — verify the "leaves room for remaining mins" constraint (`poolAfter ≥ remainingMin`). |
+| Regime field always "slack" even at wide viewport | `dumpTableLayout` — verify the regime check uses the viewport target (post-framing), not raw viewport. |

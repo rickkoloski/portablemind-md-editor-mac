@@ -107,3 +107,40 @@ Security profile of the stopgap is comparable to the broken Keychain it replaces
 **Discovered during:** session 2026-04-28 (auth-persistence diagnosis preceding what was originally framed as a Settings UI deliverable).
 
 **Not blocking active deliverables.** D19 phases 4-5 and onward proceed unchanged; this fix only restores the token-persistence quality-of-life that the broken Keychain had implicitly promised.
+---
+
+## i05 — Date column wraps "2026-04-28" mid-string at narrow editor viewport
+
+**Date:** 2026-05-06
+**Area:** editor (table rendering — column-width algorithm)
+**Status:** Fixed (D24.2, 2026-05-06)
+
+After D24 shipped (v0.6, 2026-05-05), Rick caught Table A's Date column wrapping "2026-04-28" mid-string at the editor's narrower viewport widths. D24's lock-in test was `natural ≤ equal_share` — Date's natural (~86.5pt) exceeded equal-share (~83pt at viewport 250pt) by ~3pt, so Date dropped out of lock-in, got a flex share below the 60pt floor, snapped to floor=60pt, and wrapped because 60pt < 84pt needed for the date string.
+
+**Root causes (two — both fixed by D24.2):**
+1. **Algorithm gap.** D24's "lock-in by equal-share" doesn't reliably keep narrow data columns at natural width. The structural fix is the canonical CSS Tables §3.9 `min-content + max-content + slack-proportional` algorithm — but literal CSS doesn't help for the data-editor case either (TextKit treats `-`/`/`/`.` as soft-break opportunities, so Date min ≈ 36pt and the spec algorithm gives Decision ≈95% of any surplus, leaving Date below natural at moderate viewports). D24.2 adopts CSS slack-proportional with a deliberate divergence (Q8 narrow-column threshold lock-in) that pre-locks columns whose `max ≤ 120pt` at max regardless of slack. See i06 for the second cause.
+
+2. **lineFragmentPadding compensation missing.** See i06.
+
+**Discovered during:** dogfood immediately after D24 shipped. Reported 2026-05-06.
+
+**Resolution:** D24.2 spec/plan/prompt + 4-phase delivery on `feature/d24.2-slack-proportional-columns`. See `docs/current_work/stepwise_results/d24.2_slack_proportional_columns_COMPLETE.md`.
+
+---
+
+## i06 — `NSTextContainer.lineFragmentPadding` not accounted for in cell content-width math
+
+**Date:** 2026-05-06 (latent since D24)
+**Area:** editor (table rendering — cell framing math)
+**Status:** Fixed (D24.2, 2026-05-06)
+
+`NSTextContainer.lineFragmentPadding` (default 5pt on macOS) is applied INSIDE each cell's content area at render time, eating 2 × 5 = 10pt off the usable text width. D24's natural-width measurement (`NSAttributedString.size()`) doesn't account for this. D24's lock-in algorithm always gave short-token columns ≥3pt of headroom which kept the discrepancy below the wrap threshold; D24.2's Q8 locks columns AT max with no headroom, surfacing the gap as flicker-during-resize / wrap-on-rest. Specifically:
+- `block.contentWidth` set to `naturalWidth` (e.g., 86.5pt for the Date column)
+- Render-time usable text area = `naturalWidth − 2 × lineFragmentPadding` = 76.5pt
+- "2026-04-28" needs 86.54pt → wraps
+
+**Resolution:** in `TK1TableBuilder`, split `cellFramingOverhead` into `cellBorderPaddingOverhead` (14pt: border + padding × 2) plus `2 × cellLineFragmentPadding` (10pt). Total 24pt. `makeCell` adds `2 × cellLineFragmentPadding` to the per-cell `contentWidth`, so usable text area equals the algorithm-applied column width. ~5 lines of behavioral change.
+
+**Discovered during:** D24.2 phase 3 smoke test (2026-05-06).
+
+**Latent.** This was already wrong in D24 (v0.6) but the lock-in algorithm masked it. Dogfooded for ~24h without surfacing visibly because most short-token columns had natural width ≥3pt smaller than the column got assigned, leaving room for the 10pt padding inside.

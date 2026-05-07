@@ -287,10 +287,12 @@ enum TK1TableBuilder {
 
     // MARK: - Column width
 
-    /// D24 phase 4: per-column applied widths via `TableColumnDistribution.distribute`.
-    /// Pre-caps each natural width at `viewportWidth` (Q8). Subtracts the
-    /// per-cell framing overhead × column count from the distribute target so
-    /// the rendered table fits inside `viewportWidth` end-to-end.
+    /// D24.2 phase 1: per-column applied widths still use the legacy
+    /// `TableColumnDistribution.distribute(...)` body (D24's lock-in +
+    /// flex algorithm) but feed it `maxContent` extracted from the new
+    /// `(min, max)` measurement. Phase 2 swaps the distribute body for
+    /// the Q8 + slack-proportional algorithm. Behavior unchanged in this
+    /// phase — same widths as v0.6.1.
     private static func computeColumnWidths(
         headerCells: [Markdown.Table.Cell],
         bodyCells: [[Markdown.Table.Cell]],
@@ -300,11 +302,14 @@ enum TK1TableBuilder {
         guard columnCount > 0 else { return [] }
         var naturals: [CGFloat] = Array(repeating: 0, count: columnCount)
         for col in 0..<columnCount {
-            let (nat, _) = naturalWidth(
+            let (m, _) = columnMeasurement(
                 headerCells: headerCells,
                 bodyCells: bodyCells,
                 column: col)
-            naturals[col] = min(nat, viewportWidth)
+            // D24 Q8 (viewport cap): pre-cap each column's max at viewport
+            // before distribution so a single super-long URL can't push
+            // the table past viewport.
+            naturals[col] = min(m.maxContent, viewportWidth)
         }
         let framingTotal = cellFramingOverhead * CGFloat(columnCount)
         let target = max(0, viewportWidth - framingTotal)
@@ -313,18 +318,26 @@ enum TK1TableBuilder {
             viewportWidth: target)
     }
 
-    // MARK: - D24 phase 2 — natural-width measurement (cache-aware)
+    // MARK: - D24.2 phase 1 — (min, max) per-column measurement (cache-aware)
 
-    /// Per-column measurement record for the harness.
+    /// Per-column measurement record for the harness. Carries both the
+    /// `minContent` (longest unbreakable atom per Q1) and `maxContent`
+    /// (longest single-line shaped width) for a column, plus the cache-
+    /// hit flag at lookup time.
     struct ColumnMeasurement {
         let column: Int
-        let naturalWidth: CGFloat
+        let widths: ColumnContentMeasurement
         let cacheHit: Bool
+
+        /// Convenience accessors for harness JSON serialization.
+        var minWidth: CGFloat { widths.minContent }
+        var maxWidth: CGFloat { widths.maxContent }
+        var slack: CGFloat { widths.slack }
     }
 
-    /// Public entry for the test harness (`dump_table_natural_widths`).
-    /// Walks the parsed table's cells exactly the way `build(...)` does and
-    /// returns per-column natural widths plus cache-hit flags.
+    /// Public entry for the test harness. Walks the parsed table's cells
+    /// exactly the way `build(...)` does and returns per-column `(min, max)`
+    /// measurements plus cache-hit flags.
     static func measureNaturalWidths(table: Table,
                                      nsSource: NSString) -> [ColumnMeasurement] {
         let headerCells: [Markdown.Table.Cell] = table.head.children
@@ -340,25 +353,25 @@ enum TK1TableBuilder {
         var out: [ColumnMeasurement] = []
         out.reserveCapacity(columnCount)
         for col in 0..<columnCount {
-            let (w, hit) = naturalWidth(
+            let (m, hit) = columnMeasurement(
                 headerCells: headerCells,
                 bodyCells: bodyCells,
                 column: col)
             out.append(ColumnMeasurement(
-                column: col, naturalWidth: w, cacheHit: hit))
+                column: col, widths: m, cacheHit: hit))
         }
         return out
     }
 
-    /// Per-column natural width: longest single-line CT-shaped width across
-    /// the header cell + every body row's cell in the column. Cached by a
-    /// content hash that captures every contributing cell's plain text in
-    /// render order (header first, body rows in row order). Header cell is
-    /// shaped with `Typography.boldFont`; body cells with `Typography.baseFont`
-    /// — same fonts the renderer uses, so measure ≈ render width.
-    static func naturalWidth(headerCells: [Markdown.Table.Cell],
-                             bodyCells: [[Markdown.Table.Cell]],
-                             column col: Int) -> (CGFloat, Bool) {
+    /// Per-column `(min, max)` content widths. Cached by a content hash
+    /// that captures every contributing cell's plain text in render order
+    /// (header first, body rows in row order). Header cell is shaped with
+    /// `Typography.boldFont`; body cells with `Typography.baseFont` — same
+    /// fonts the renderer uses, so measure ≈ render width.
+    static func columnMeasurement(headerCells: [Markdown.Table.Cell],
+                                  bodyCells: [[Markdown.Table.Cell]],
+                                  column col: Int)
+        -> (ColumnContentMeasurement, Bool) {
         var hasher = Hasher()
         if col < headerCells.count {
             hasher.combine("h")
@@ -370,21 +383,30 @@ enum TK1TableBuilder {
         }
         let key = hasher.finalize()
 
-        return TableNaturalWidthCache.shared.widthOrCompute(forContentHash: key) {
+        return TableNaturalWidthCache.shared.measurementOrCompute(
+            forContentHash: key
+        ) {
             var maxW: CGFloat = 0
+            var minW: CGFloat = 0
             if col < headerCells.count {
-                let s = NSAttributedString(
-                    string: cellNaturalText(headerCells[col].plainText),
-                    attributes: [.font: Typography.boldFont])
-                maxW = max(maxW, s.size().width)
+                let text = cellNaturalText(headerCells[col].plainText)
+                let lineW = NSAttributedString(
+                    string: text,
+                    attributes: [.font: Typography.boldFont]
+                ).size().width
+                maxW = max(maxW, lineW)
+                minW = max(minW, cellMinContentWidth(text, font: Typography.boldFont))
             }
             for row in bodyCells where col < row.count {
-                let s = NSAttributedString(
-                    string: cellNaturalText(row[col].plainText),
-                    attributes: [.font: Typography.baseFont])
-                maxW = max(maxW, s.size().width)
+                let text = cellNaturalText(row[col].plainText)
+                let lineW = NSAttributedString(
+                    string: text,
+                    attributes: [.font: Typography.baseFont]
+                ).size().width
+                maxW = max(maxW, lineW)
+                minW = max(minW, cellMinContentWidth(text, font: Typography.baseFont))
             }
-            return maxW
+            return ColumnContentMeasurement(minContent: minW, maxContent: maxW)
         }
     }
 
@@ -396,5 +418,58 @@ enum TK1TableBuilder {
         return firstLine
             .replacingOccurrences(of: "\\|", with: "|")
             .replacingOccurrences(of: "\\\\", with: "\\")
+    }
+
+    // MARK: - D24.2 Q1 — min-content (longest unbreakable atom)
+
+    /// Per Q1: split `text` on whitespace + ASCII soft-break punctuation
+    /// (`-`, `/`, `.`), measure each resulting atom's CT-shaped width with
+    /// `font`, return the maximum. Conservative heuristic that matches
+    /// TextKit's `byWordWrapping` behavior on dogfooded markdown content.
+    /// The phase-1 token-split spike validates the heuristic against
+    /// TextKit's actual minimum-line-fragment behavior.
+    static func cellMinContentWidth(_ text: String, font: NSFont) -> CGFloat {
+        if text.isEmpty { return 0 }
+        var maxAtom: CGFloat = 0
+        var atomStart = text.startIndex
+        var i = text.startIndex
+        while i < text.endIndex {
+            let c = text[i]
+            if Self.isSoftBreakChar(c) {
+                if atomStart < i {
+                    let atom = String(text[atomStart..<i])
+                    let w = NSAttributedString(
+                        string: atom,
+                        attributes: [.font: font]
+                    ).size().width
+                    if w > maxAtom { maxAtom = w }
+                }
+                atomStart = text.index(after: i)
+            }
+            i = text.index(after: i)
+        }
+        if atomStart < text.endIndex {
+            let atom = String(text[atomStart..<text.endIndex])
+            let w = NSAttributedString(
+                string: atom,
+                attributes: [.font: font]
+            ).size().width
+            if w > maxAtom { maxAtom = w }
+        }
+        return maxAtom
+    }
+
+    /// Q1 break-character set: ASCII whitespace + `-`, `/`, `.`. Conservative
+    /// — TextKit treats more punctuation as soft-break (`,`, `;`, `:`, etc.)
+    /// but those rarely appear inside atomic content in dogfooded markdown.
+    /// The spike validates whether broadening this set is warranted.
+    @inline(__always)
+    private static func isSoftBreakChar(_ c: Character) -> Bool {
+        switch c {
+        case " ", "\t", "\n", "-", "/", ".":
+            return true
+        default:
+            return false
+        }
     }
 }

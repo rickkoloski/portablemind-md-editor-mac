@@ -1195,7 +1195,9 @@ final class HarnessCommandPoller {
         for m in measurements {
             columns.append([
                 "column": m.column,
-                "naturalWidthPt": Double(m.naturalWidth),
+                "minWidthPt": Double(m.minWidth),
+                "maxWidthPt": Double(m.maxWidth),
+                "slackPt": Double(m.slack),
                 "cacheHit": m.cacheHit
             ])
         }
@@ -1273,28 +1275,32 @@ final class HarnessCommandPoller {
         let measurements = TK1TableBuilder.measureNaturalWidths(
             table: tables[tableIndex], nsSource: nsSource)
         let n = measurements.count
-        let cappedNaturals: [CGFloat] = measurements.map {
-            min($0.naturalWidth, viewportWidth)
+        let cappedMaxes: [CGFloat] = measurements.map {
+            min($0.maxWidth, viewportWidth)
         }
         let framingOverhead = TK1TableBuilder.cellFramingOverhead * CGFloat(n)
         let target = max(0, viewportWidth - framingOverhead)
+        // D24.2 phase 1: distribution still uses the legacy single-natural
+        // path (D24's lock-in + flex). Phase 2 swaps for Q8 + slack.
         let applied = TableColumnDistribution.distribute(
-            naturalWidths: cappedNaturals,
+            naturalWidths: cappedMaxes,
             viewportWidth: target)
 
         var columns: [[String: Any]] = []
         columns.reserveCapacity(n)
         for i in 0..<n {
-            let nat = measurements[i].naturalWidth
-            let cap = cappedNaturals[i]
+            let m = measurements[i]
+            let cap = cappedMaxes[i]
             let app = i < applied.count ? applied[i] : 0
-            // "locked" means the applied width matches the capped natural
-            // (within 0.5pt tolerance) — i.e. the column got its full ask.
+            // "locked" means the applied width matches the capped max
+            // (within 0.5pt tolerance) — column got its full max ask.
             let locked = abs(app - cap) < 0.5
             columns.append([
                 "column": i,
-                "naturalWidthPt": Double(nat),
-                "cappedNaturalPt": Double(cap),
+                "minWidthPt": Double(m.minWidth),
+                "maxWidthPt": Double(m.maxWidth),
+                "slackPt": Double(m.slack),
+                "cappedMaxPt": Double(cap),
                 "appliedWidthPt": Double(app),
                 "locked": locked,
                 "flex": !locked

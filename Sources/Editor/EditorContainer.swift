@@ -86,6 +86,12 @@ struct EditorContainer: NSViewRepresentable {
         // Observe `boundsDidChange` on the contentView (clip view); set
         // contentView.postsBoundsChangedNotifications first.
         scroll.contentView.postsBoundsChangedNotifications = true
+        // D24 fix-up 2026-05-06 — scroll's frame changes when SwiftUI
+        // sizes the NSViewRepresentable; we observe this to trigger an
+        // initial-layout reflow so tables don't freeze at the 800pt
+        // fallback width on file open. Default is already true, set
+        // explicitly to be defensive against any subclass override.
+        scroll.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
             object: scroll.contentView,
@@ -145,10 +151,10 @@ struct EditorContainer: NSViewRepresentable {
         private let document: EditorDocument
         private var cancellables: Set<AnyCancellable> = []
 
-        /// D24 phase 5 — debounced reflow on window resize. Holds the
-        /// currently scheduled reflow; cancelled and rescheduled on each
-        /// new resize notification. Fires renderCurrentText 100ms after
-        /// the resize storm subsides.
+        /// D24 phase 5 / 2026-05-06 fix-up — debounced reflow on window
+        /// resize and initial layout. Cancelled and rescheduled on each
+        /// notification; fires renderCurrentText 50ms after the storm
+        /// subsides.
         private var resizeReflowTask: Task<Void, Never>?
 
         init(document: EditorDocument) {
@@ -156,18 +162,22 @@ struct EditorContainer: NSViewRepresentable {
         }
 
         deinit {
-            // Notification observer added via the closure-based API
-            // returns an opaque token; we keep it on the coordinator so
-            // it lives exactly as long as the coordinator does.
+            // Notification observers added via the closure-based API
+            // return opaque tokens; we keep them on the coordinator so
+            // they live exactly as long as the coordinator does.
             if let token = resizeObserver {
+                NotificationCenter.default.removeObserver(token)
+            }
+            if let token = scrollFrameObserver {
                 NotificationCenter.default.removeObserver(token)
             }
             resizeReflowTask?.cancel()
         }
 
-        /// Opaque token from `NotificationCenter.addObserver(forName:...)`.
+        /// Opaque tokens from `NotificationCenter.addObserver(forName:...)`.
         /// Must be held to keep the observer alive and removed on deinit.
         private var resizeObserver: NSObjectProtocol?
+        private var scrollFrameObserver: NSObjectProtocol?
 
         func wireDocumentSubscription() {
             // When the document's source changes externally (e.g., an
@@ -211,19 +221,30 @@ struct EditorContainer: NSViewRepresentable {
                 }
                 .store(in: &cancellables)
 
-            subscribeToWindowResize()
+            subscribeToReflowTriggers()
         }
 
-        /// D24 phase 5 — debounced reflow trigger. NSWindow posts
-        /// `didResizeNotification` continuously during a drag-resize;
-        /// each notification cancels and reschedules the reflow Task,
-        /// so renderCurrentText fires once, ~100ms after the drag eases.
-        /// During the active drag the rendered table widths stay frozen
-        /// at the pre-resize values — visible until the debounce fires.
-        private func subscribeToWindowResize() {
-            // Object-less subscription: the textView's window can change
-            // (move-to-window during attach), and AppKit posts on the
-            // resized window directly. Filter inside the handler.
+        /// D24 phase 5 — debounced reflow trigger.
+        ///
+        /// Two notifications feed the same `scheduleResizeReflow` debounce:
+        ///
+        /// 1. `NSWindow.didResizeNotification` — fires continuously during a
+        ///    user drag-resize. The cancel-and-reschedule keeps the reflow
+        ///    waiting until the drag eases (50ms tail; Q3 originally
+        ///    specified 100ms, shortened 2026-05-06 alongside the
+        ///    initial-layout fix to keep file-open snappy).
+        /// 2. `NSView.frameDidChangeNotification` on the scroll view — fires
+        ///    when SwiftUI/AppKit sizes the NSViewRepresentable after
+        ///    `makeNSView` returns. Without this, the very first
+        ///    `renderCurrentText` runs against an unsized text container and
+        ///    falls back to the 800pt default; the table then "freezes" at
+        ///    the wrong viewport until the user drag-resizes (the original
+        ///    D24 ship-day defect, fixed 2026-05-06).
+        ///
+        /// Both observers are object-less (filtered inside the handler) so
+        /// they survive AppKit re-parenting the textView between windows
+        /// during attach.
+        private func subscribeToReflowTriggers() {
             resizeObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didResizeNotification,
                 object: nil,
@@ -235,15 +256,34 @@ struct EditorContainer: NSViewRepresentable {
                       resized === tv.window else { return }
                 self.scheduleResizeReflow(in: tv)
             }
+
+            scrollFrameObserver = NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                guard let self,
+                      let tv = self.textView,
+                      let scroll = tv.enclosingScrollView,
+                      let resized = note.object as? NSView,
+                      resized === scroll else { return }
+                self.scheduleResizeReflow(in: tv)
+            }
         }
 
         private func scheduleResizeReflow(in textView: LiveRenderTextView) {
             resizeReflowTask?.cancel()
             resizeReflowTask = Task { @MainActor [weak self] in
-                // 100ms tail per Q3. NSWindow.didResizeNotification fires
-                // many times during a drag; each cancel-and-reschedule
-                // keeps the reflow waiting until the storm subsides.
-                try? await Task.sleep(nanoseconds: 100_000_000)
+                // 50ms tail. NSWindow.didResizeNotification fires many
+                // times during a drag (every frame, ~16ms); the cancel-
+                // and-reschedule keeps the reflow waiting until the storm
+                // subsides. 50ms is short enough that the initial-layout
+                // reflow on file open is barely-perceptible while still
+                // coalescing drag bursts. Q3 originally specified 100ms
+                // for drag-only; the 2026-05-06 fix-up added the same
+                // path for initial-layout reflow and shortened the tail
+                // to keep file-open snappy.
+                try? await Task.sleep(nanoseconds: 50_000_000)
                 if Task.isCancelled { return }
                 guard let self else { return }
                 self.renderCurrentText(in: textView)
@@ -344,11 +384,19 @@ struct EditorContainer: NSViewRepresentable {
             let source = document.source
             // D24 phase 4 — pass live container width to the renderer so
             // table column distribution tracks the actual editor viewport.
-            // Falls back to 800pt when the container is mid-attach (only
-            // hit on the very first render before AppKit has sized the
-            // container; the next render after layout will see the real
-            // width and reflow).
-            let viewportWidth = textView.textContainer?.containerSize.width ?? 800
+            // Falls back to 800pt when the container is mid-attach (the
+            // default container size is .greatestFiniteMagnitude before
+            // AppKit lays out the text view). The scroll view's
+            // frameDidChange observer (subscribeToReflowTriggers) catches
+            // the initial layout and triggers a corrective reflow.
+            let rawWidth = textView.textContainer?.containerSize.width ?? 800
+            let viewportWidth: CGFloat
+            if rawWidth >= .greatestFiniteMagnitude || rawWidth <= 0 {
+                NSLog("[D24] renderCurrentText: container width=%.0f, falling back to 800pt; awaiting frameDidChange-triggered reflow", rawWidth)
+                viewportWidth = 800
+            } else {
+                viewportWidth = rawWidth
+            }
             let result = document.documentType.render(
                 source, viewportWidth: viewportWidth)
 

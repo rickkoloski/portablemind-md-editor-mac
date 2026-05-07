@@ -28,11 +28,29 @@ enum TK1TableBuilder {
     /// - Returns: an NSAttributedString whose paragraphs are cells.
     ///   Last paragraph is terminated by `\n` like the rest so the
     ///   table flows naturally with the surrounding content.
-    /// Per-cell framing overhead (border × 2 + padding × 2) added by
-    /// `makeCell` via `setWidth(_:type:for:.border)` and `.padding`. The
-    /// distribute target shaves N × `cellFramingOverhead` off `viewportWidth`
-    /// so the rendered table fits without spilling past the container.
-    static let cellFramingOverhead: CGFloat = 14   // 2*1 (border) + 2*6 (padding)
+    /// Per-cell visible framing overhead added outside the cell's content
+    /// box: 2 × 1pt border + 2 × 6pt padding (set on NSTextTableBlock
+    /// in `makeCell`).
+    static let cellBorderPaddingOverhead: CGFloat = 14   // 2*1 + 2*6
+
+    /// NSTextContainer.lineFragmentPadding (default 5pt on macOS) is
+    /// applied INSIDE each cell's content area at render time, eating
+    /// 2 × 5 = 10pt off the usable text width. Our natural-width
+    /// measurement (NSAttributedString.size) doesn't account for this.
+    /// Both the cell's setContentWidth call AND the distribute target
+    /// subtraction add 2 × this value so the algorithm-applied width
+    /// equals the actual rendered text area (D24.2 phase 3 fix —
+    /// previously latent because D24's lock-in algorithm always gave
+    /// short-token columns ≥3pt of headroom; Q8 lock-at-max made the
+    /// edge case visible as flicker-during-resize / wrap-on-fixed).
+    static let cellLineFragmentPadding: CGFloat = 5
+
+    /// Total per-cell width overhead (visual framing + lineFragment
+    /// padding compensation). Subtract `cellFramingOverhead × N` from
+    /// `viewportWidth` to get the distribution target so the rendered
+    /// table fits end-to-end.
+    static let cellFramingOverhead: CGFloat =
+        cellBorderPaddingOverhead + 2 * cellLineFragmentPadding   // 24
 
     static func build(table: Table,
                       tableSourceRange: NSRange,
@@ -143,7 +161,13 @@ enum TK1TableBuilder {
         block.setBorderColor(.separatorColor)
         block.setWidth(1, type: .absoluteValueType, for: .border)
         block.setWidth(6, type: .absoluteValueType, for: .padding)
-        block.setContentWidth(contentWidth, type: .absoluteValueType)
+        // D24.2 phase 3 — pad the block's content width by the host
+        // text container's lineFragmentPadding (×2) so the usable text
+        // area inside the cell equals the algorithm-applied column
+        // width. See cellLineFragmentPadding doc comment.
+        block.setContentWidth(
+            contentWidth + 2 * Self.cellLineFragmentPadding,
+            type: .absoluteValueType)
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.textBlocks = [block]

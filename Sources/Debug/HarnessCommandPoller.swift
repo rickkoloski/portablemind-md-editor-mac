@@ -1289,15 +1289,26 @@ final class HarnessCommandPoller {
             measurements: cappedMeasurements,
             viewportWidth: target)
 
+        // D24.2 phase 3: regime detection mirrors distribute()'s branches.
+        let sumMin = cappedMeasurements.reduce(CGFloat(0)) { $0 + $1.minContent }
+        let sumMax = cappedMeasurements.reduce(CGFloat(0)) { $0 + $1.maxContent }
+        let regime: String
+        if sumMax <= target {
+            regime = "fits"
+        } else if sumMin >= target {
+            regime = "overflow"
+        } else {
+            regime = "slack"
+        }
+
         var columns: [[String: Any]] = []
         columns.reserveCapacity(n)
         for i in 0..<n {
             let m = measurements[i]
             let cap = cappedMeasurements[i]
             let app = i < applied.count ? applied[i] : 0
-            // "locked" means the applied width matches the capped max
-            // (within 0.5pt tolerance) — column got its full max ask
-            // (whether via Q8 pre-lock or fits-naturally).
+            // "locked" means applied == capped max (within 0.5pt) —
+            // column got its full max ask via Q8 pre-lock or fits regime.
             let locked = abs(app - cap.maxContent) < 0.5
             columns.append([
                 "column": i,
@@ -1317,6 +1328,8 @@ final class HarnessCommandPoller {
             "viewportWidth": Double(viewportWidth),
             "framingOverhead": Double(framingOverhead),
             "distributeTarget": Double(target),
+            "regime": regime,
+            "narrowThreshold": Double(TableColumnDistribution.defaultNarrowThreshold),
             "columns": columns
         ]
         if let data = try? JSONSerialization.data(

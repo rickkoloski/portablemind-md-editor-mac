@@ -24,6 +24,26 @@ final class WorkspaceStore: ObservableObject {
 
     let tabs = TabStore()
 
+    /// D23 — pending Save As / New File request that drives the
+    /// SaveAsSheet via `WorkspaceView.sheet(item:)`. nil → no sheet
+    /// shown. Set by `requestSaveAs(for:)`; cleared by the sheet on
+    /// dismiss.
+    @Published var saveAsRequest: SaveAsRequest?
+
+    /// D23 — payload for the SaveAsSheet. Carries the document being
+    /// saved and the connector to default the picker to. `intent`
+    /// distinguishes "save existing buffer to a new location" from
+    /// "create a new empty file" — phase 3 sets `.newFile` for the
+    /// New File flow.
+    struct SaveAsRequest: Identifiable {
+        let id = UUID()
+        let document: EditorDocument
+        let initialFilename: String
+        let initialConnector: any Connector
+        let intent: Intent
+        enum Intent { case saveAs, newFile }
+    }
+
     private var bookmarkAccessStop: (() -> Void)?
     private var treeWatcher: FolderTreeWatcher?
     private var cancellables: Set<AnyCancellable> = []
@@ -143,6 +163,41 @@ final class WorkspaceStore: ObservableObject {
         let focusedIndex = UserDefaults.standard.integer(forKey: Self.focusedTabIndexKey)
         if focusedIndex >= 0, focusedIndex < tabs.documents.count {
             tabs.focusedIndex = focusedIndex
+        }
+    }
+
+    // MARK: - D23 Save As / New File
+
+    /// Open the Save As sheet for `doc`. Picker defaults to the doc's
+    /// origin connector (PM tab → its PortableMindConnector;
+    /// Local tab → LocalConnector). If no matching connector is loaded,
+    /// falls back to the first available connector (rare).
+    func requestSaveAs(for doc: EditorDocument) {
+        let connector = matchingConnector(for: doc)
+            ?? connectors.first
+        guard let connector else { return }
+        let initialName = doc.connectorNode?.name
+            ?? doc.url?.lastPathComponent
+            ?? "Untitled.md"
+        saveAsRequest = SaveAsRequest(
+            document: doc,
+            initialFilename: initialName,
+            initialConnector: connector,
+            intent: .saveAs)
+    }
+
+    /// D23 — dismiss the Save As sheet (called by the sheet on Cancel
+    /// or successful Save).
+    func dismissSaveAs() {
+        saveAsRequest = nil
+    }
+
+    private func matchingConnector(for doc: EditorDocument) -> (any Connector)? {
+        switch doc.origin {
+        case .local:
+            return connectors.first { $0 is LocalConnector }
+        case .portableMind(let connectorID, _, _):
+            return connectors.first { $0.id == connectorID }
         }
     }
 }

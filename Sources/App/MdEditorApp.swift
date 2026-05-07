@@ -209,17 +209,12 @@ struct MdEditorApp: App {
 
     private func saveAsFocused() {
         guard let doc = workspace.tabs.focused else { return }
-        // D19 phase 3 — Save As on a PM tab is not yet supported (Q4
-        // decision). The unified PM file-management deliverable
-        // (post-D20) handles rename / move / new-file.
+        // D23 phase 2 — Save As on a PM tab opens the SaveAsSheet via
+        // WorkspaceStore.saveAsRequest. The sheet drives the connector
+        // tree picker + filename + create flow via PMFileOperations.
+        // The D19 "unsupportedSaveAs" alert is gone.
         if case .portableMind = doc.origin {
-            let alert = NSAlert()
-            alert.messageText = "Save As not yet supported"
-            alert.informativeText = EditorDocument.SaveError.unsupportedSaveAs
-                .errorDescription ?? ""
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+            workspace.requestSaveAs(for: doc)
             return
         }
         let panel = NSSavePanel()

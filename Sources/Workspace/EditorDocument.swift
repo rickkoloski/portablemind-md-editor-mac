@@ -43,7 +43,10 @@ final class EditorDocument: ObservableObject, Identifiable {
     /// Where this document came from. `.local` for filesystem-backed
     /// tabs (the D6 path); `.portableMind(...)` for tabs opened via
     /// the connector.
-    let origin: Origin
+    /// D23 — origin can change after Save As (PM→PM puts the same tab
+    /// behind a different LlmFile). `private(set)` so only the document's
+    /// own mutators (D14 `saveAs`, D23 `updateAfterSaveAs`) can write.
+    @Published private(set) var origin: Origin
 
     enum Origin {
         case local
@@ -194,10 +197,12 @@ final class EditorDocument: ObservableObject, Identifiable {
         }
     }
 
-    /// Save As. Local: writes to a new URL (D14). PortableMind: throws
-    /// `.unsupportedSaveAs` per Q4 decision; the unified PM file-
-    /// management deliverable (post-D20) handles rename / move /
-    /// new-file.
+    /// Save As. Local: writes to a new URL (D14). PortableMind: callers
+    /// route through the D23 SaveAsSheet → PMFileOperations.saveAs path
+    /// instead of this method (which still throws .unsupportedSaveAs to
+    /// guard against any code path that didn't migrate). D23 phase 2:
+    /// MdEditorApp.saveAsFocused branches on origin and invokes the
+    /// sheet for PM tabs; this method only runs for Local.
     func saveAs(to newURL: URL) throws {
         if isReadOnly { throw SaveError.readOnly }
         if case .portableMind = origin {
@@ -206,6 +211,22 @@ final class EditorDocument: ObservableObject, Identifiable {
         try writeAndRewatch(url: newURL)
         self.url = newURL
         self.lastSavedSource = source
+    }
+
+    /// D23 — replace the document's origin / connectorNode / url after a
+    /// Save As mutation. The buffer (`source`) is preserved; clears
+    /// `dirty` by setting `lastSavedSource` to the buffer at mutation
+    /// time. Caller is responsible for ensuring the new node already
+    /// exists on the server / disk (this method just rebinds the tab).
+    @MainActor
+    func updateAfterSaveAs(newOrigin: Origin,
+                           newConnectorNode: ConnectorNode?,
+                           newURL: URL?) {
+        self.origin = newOrigin
+        self.connectorNode = newConnectorNode
+        self.url = newURL
+        self.lastSavedSource = source
+        self.isReadOnly = false   // a freshly-created file is writable
     }
 
     private func writeAndRewatch(url: URL) throws {

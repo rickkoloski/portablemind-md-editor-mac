@@ -14,6 +14,13 @@ struct WorkspaceView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .navigationTitle(workspace.rootURL?.lastPathComponent ?? "MdEditor")
+        // D23 phase 2 — Save As / New File modal sheet. Bound to
+        // workspace.saveAsRequest so any code path (App-level
+        // saveAsFocused, harness pm_save_as) can drive the sheet by
+        // setting the request.
+        .sheet(item: $workspace.saveAsRequest) { request in
+            SaveAsSheet(request: request, workspace: workspace)
+        }
     }
 
     @ViewBuilder

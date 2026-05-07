@@ -306,6 +306,17 @@ final class HarnessCommandPoller {
                 tableIndex: (params["tableIndex"] as? Int) ?? 0,
                 resultPath: params["path"] as? String
                     ?? "/tmp/mdeditor-table-layout.json")
+        // D23 phase 2 — drive the Save As code path without the modal.
+        // {"action":"pm_save_as","parentNodeID":"<connector-id>:dir:N","name":"foo.md","path":"/tmp/result.json"}
+        // Looks up the focused doc + the connector tree node by id; calls
+        // PMFileOperations.saveAs; emits the new node's id + path on the
+        // result file.
+        case "pm_save_as":
+            pmSaveAs(
+                parentNodeID: params["parentNodeID"] as? String,
+                name: params["name"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-pm-save-as.json")
         // D24 phase 5 — programmatic window-width resize so a driver can
         // exercise the debounced reflow without dragging the chrome.
         case "set_window_width":
@@ -1224,6 +1235,89 @@ final class HarnessCommandPoller {
     // window itself; the editor container's debounce picks it up and
     // reflows ~100ms later. Test driver pattern: set width, sleep ≥150ms,
     // dump_table_layout / snapshot.
+    // D23 phase 2 — drive PMFileOperations.saveAs without the modal.
+    private func pmSaveAs(parentNodeID: String?, name: String?, resultPath: String) {
+        try? Data().write(to: URL(fileURLWithPath: resultPath))
+        Task { @MainActor in
+            guard let parentNodeID, let name else {
+                Self.writeJSONErrorStatic(
+                    ["error": "parentNodeID and name required"],
+                    to: resultPath)
+                return
+            }
+            let store = WorkspaceStore.shared
+            guard let doc = store.tabs.focused else {
+                Self.writeJSONErrorStatic(
+                    ["error": "no focused doc"], to: resultPath)
+                return
+            }
+            // Find the parent node by walking each connector's tree
+            // view-model. Loaded children only; harness driver should
+            // expand the path first if needed.
+            guard let parent = findNode(byID: parentNodeID, in: store) else {
+                Self.writeJSONErrorStatic(
+                    ["error": "parentNodeID not found in any connector tree",
+                     "parentNodeID": parentNodeID],
+                    to: resultPath)
+                return
+            }
+            do {
+                let newNode = try await PMFileOperations.saveAs(
+                    doc: doc, to: parent, name: name)
+                let payload: [String: Any] = [
+                    "ok": true,
+                    "newNodeID": newNode.id,
+                    "newNodePath": newNode.path,
+                    "newNodeName": newNode.name
+                ]
+                if let data = try? JSONSerialization.data(
+                    withJSONObject: payload,
+                    options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: resultPath))
+                }
+            } catch {
+                Self.writeJSONErrorStatic(
+                    ["ok": false, "error": "\(error)"],
+                    to: resultPath)
+            }
+        }
+    }
+
+    /// Walk every connector's tree view-model to find the node matching
+    /// `id`. Used by harness actions that take a node id directly.
+    /// Loaded children only — harness recipe is expected to expand the
+    /// path before invoking the action.
+    private func findNode(byID id: String,
+                          in store: WorkspaceStore) -> ConnectorNode? {
+        for connector in store.connectors {
+            // Check root.
+            if connector.rootNode.id == id { return connector.rootNode }
+            // Check loaded children recursively via the view-model's cache.
+            guard let vm = store.treeViewModels[connector.id] else { continue }
+            if let found = findIn(vm: vm,
+                                  parentPath: connector.rootNode.path,
+                                  id: id) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func findIn(vm: ConnectorTreeViewModel,
+                        parentPath: String,
+                        id: String) -> ConnectorNode? {
+        guard let kids = vm.childrenIfLoaded(at: parentPath) else { return nil }
+        for kid in kids {
+            if kid.id == id { return kid }
+            if kid.kind == .directory {
+                if let found = findIn(vm: vm, parentPath: kid.path, id: id) {
+                    return found
+                }
+            }
+        }
+        return nil
+    }
+
     private func setWindowWidth(_ pt: CGFloat) {
         guard let tv = HarnessActiveSink.shared.activeTextView,
               let window = tv.window else { return }

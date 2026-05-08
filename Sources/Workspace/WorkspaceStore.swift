@@ -54,6 +54,14 @@ final class WorkspaceStore: ObservableObject {
         let node: ConnectorNode
     }
 
+    /// D23.1 — pending Create Folder request driving CreateDirectorySheet.
+    @Published var createDirectoryRequest: CreateDirectoryRequest?
+
+    struct CreateDirectoryRequest: Identifiable {
+        let id = UUID()
+        let parent: ConnectorNode
+    }
+
     /// D23 — payload for the SaveAsSheet. Carries the document being
     /// saved and the connector to default the picker to. `intent`
     /// distinguishes "save existing buffer to a new location" from
@@ -265,5 +273,15 @@ final class WorkspaceStore: ObservableObject {
 
     func dismissMove() {
         moveRequest = nil
+    }
+
+    /// D23.1 — open the CreateDirectorySheet under `parent`. On Save
+    /// the modal calls `PMFileOperations.createDirectory(in:name:store:)`.
+    func requestCreateDirectory(in parent: ConnectorNode) {
+        createDirectoryRequest = CreateDirectoryRequest(parent: parent)
+    }
+
+    func dismissCreateDirectory() {
+        createDirectoryRequest = nil
     }
 }

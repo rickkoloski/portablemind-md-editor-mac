@@ -64,6 +64,16 @@ enum AccessibilityIdentifiers {
         "md-editor.sidebar.folder-tree.row.move:\(id)"
     }
 
+    /// D23.1 — context-menu Delete… item per row.
+    static func folderTreeRowDelete(id: String) -> String {
+        "md-editor.sidebar.folder-tree.row.delete:\(id)"
+    }
+
+    /// D23.1 — context-menu New Folder… item per directory row.
+    static func folderTreeRowNewFolder(id: String) -> String {
+        "md-editor.sidebar.folder-tree.row.new-folder:\(id)"
+    }
+
     static func tabButton(documentID: UUID) -> String {
         "md-editor.tabs.tab:\(documentID.uuidString)"
     }

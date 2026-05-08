@@ -241,8 +241,12 @@ final class PortableMindAPIClient {
     }
 
     /// `POST /api/v1/llm_directories`. JSON body
-    /// `{llm_directory: {name, parent_path}}`. Returns the new
-    /// DirectoryDTO.
+    /// `{llm_directory: {name, path}}` — the model's
+    /// `before_validation :set_parent_path` derives parent_path + depth
+    /// from `path`, but the controller runs validations after `new()`
+    /// and `validates :path, presence: true` will fire first. Send
+    /// the full path explicitly. Empty parent (rootNode.path) and
+    /// "/" both map to root → child path is "/<name>".
     func createDirectory(parentPath: String,
                          name: String) async throws -> DirectoryDTO {
         let url = base("/llm_directories")
@@ -251,10 +255,16 @@ final class PortableMindAPIClient {
         try setAuthHeaders(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let fullPath: String
+        if parentPath.isEmpty || parentPath == "/" {
+            fullPath = "/\(name)"
+        } else {
+            fullPath = "\(parentPath)/\(name)"
+        }
         let body: [String: Any] = [
             "llm_directory": [
                 "name": name,
-                "parent_path": parentPath
+                "path": fullPath
             ]
         ]
         do {
@@ -266,10 +276,18 @@ final class PortableMindAPIClient {
         return try await sendForLlmDirectory(request)
     }
 
-    /// `DELETE /api/v1/llm_directories/:id`. Cascade-deletes children.
+    /// `DELETE /api/v1/llm_directories/:id?cascade=true`. The server
+    /// requires an explicit cascade flag to delete non-empty directories
+    /// (returns 422 with "Cannot delete non-empty directory without
+    /// cascade option" otherwise). Our UX collects user confirmation
+    /// via NSAlert (child count surfaced when known), so we always
+    /// pass cascade=true at the API boundary.
     func deleteDirectory(directoryID: Int) async throws {
-        let url = base("/llm_directories/\(directoryID)")
-        var request = URLRequest(url: url)
+        var comps = URLComponents(
+            url: base("/llm_directories/\(directoryID)"),
+            resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "cascade", value: "true")]
+        var request = URLRequest(url: comps.url!)
         request.httpMethod = "DELETE"
         try setAuthHeaders(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")

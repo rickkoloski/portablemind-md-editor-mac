@@ -163,7 +163,7 @@ struct SaveAsSheet: View {
                     return
                 }
                 _ = try await PMFileOperations.saveAs(
-                    doc: doc, to: target, name: filename)
+                    doc: doc, to: target, name: filename, store: workspace)
             case .newFile:
                 _ = try await PMFileOperations.newFile(
                     in: target, name: filename, store: workspace)

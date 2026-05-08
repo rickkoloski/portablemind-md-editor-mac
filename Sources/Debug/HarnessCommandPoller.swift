@@ -349,6 +349,25 @@ final class HarnessCommandPoller {
                 newParentNodeID: params["newParentNodeID"] as? String,
                 resultPath: params["path"] as? String
                     ?? "/tmp/mdeditor-pm-move.json")
+        // D23.1 — destructive ops + create folder, harness path.
+        // Used by the self-cleaning smoke pattern: create scratch dir
+        // → run D23 file ops inside → delete scratch dir.
+        case "pm_delete_file":
+            pmDeleteFile(
+                nodeID: params["nodeID"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-pm-delete-file.json")
+        case "pm_create_directory":
+            pmCreateDirectory(
+                parentNodeID: params["parentNodeID"] as? String,
+                name: params["name"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-pm-create-dir.json")
+        case "pm_delete_directory":
+            pmDeleteDirectory(
+                nodeID: params["nodeID"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-pm-delete-dir.json")
         // D24 phase 5 — programmatic window-width resize so a driver can
         // exercise the debounced reflow without dragging the chrome.
         case "set_window_width":
@@ -1311,6 +1330,107 @@ final class HarnessCommandPoller {
                 Self.writeJSONErrorStatic(
                     ["ok": false, "error": "\(error)"],
                     to: resultPath)
+            }
+        }
+    }
+
+    // D23.1 — drive PMFileOperations.delete (file path).
+    private func pmDeleteFile(nodeID: String?, resultPath: String) {
+        try? Data().write(to: URL(fileURLWithPath: resultPath))
+        Task { @MainActor in
+            guard let nodeID else {
+                Self.writeJSONErrorStatic(
+                    ["error": "nodeID required"], to: resultPath)
+                return
+            }
+            let store = WorkspaceStore.shared
+            guard let node = findNode(byID: nodeID, in: store) else {
+                Self.writeJSONErrorStatic(
+                    ["error": "nodeID not found", "nodeID": nodeID],
+                    to: resultPath)
+                return
+            }
+            do {
+                try await PMFileOperations.delete(node: node, store: store)
+                let payload: [String: Any] = ["ok": true, "nodeID": nodeID]
+                if let data = try? JSONSerialization.data(
+                    withJSONObject: payload,
+                    options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: resultPath))
+                }
+            } catch {
+                Self.writeJSONErrorStatic(
+                    ["ok": false, "error": "\(error)"], to: resultPath)
+            }
+        }
+    }
+
+    // D23.1 — drive PMFileOperations.createDirectory.
+    private func pmCreateDirectory(parentNodeID: String?, name: String?, resultPath: String) {
+        try? Data().write(to: URL(fileURLWithPath: resultPath))
+        Task { @MainActor in
+            guard let parentNodeID, let name else {
+                Self.writeJSONErrorStatic(
+                    ["error": "parentNodeID and name required"],
+                    to: resultPath)
+                return
+            }
+            let store = WorkspaceStore.shared
+            guard let parent = findNode(byID: parentNodeID, in: store) else {
+                Self.writeJSONErrorStatic(
+                    ["error": "parentNodeID not found",
+                     "parentNodeID": parentNodeID],
+                    to: resultPath)
+                return
+            }
+            do {
+                let newNode = try await PMFileOperations.createDirectory(
+                    in: parent, name: name, store: store)
+                let payload: [String: Any] = [
+                    "ok": true,
+                    "newNodeID": newNode.id,
+                    "newNodePath": newNode.path,
+                    "newNodeName": newNode.name
+                ]
+                if let data = try? JSONSerialization.data(
+                    withJSONObject: payload,
+                    options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: resultPath))
+                }
+            } catch {
+                Self.writeJSONErrorStatic(
+                    ["ok": false, "error": "\(error)"], to: resultPath)
+            }
+        }
+    }
+
+    // D23.1 — drive PMFileOperations.delete (directory path; cascades).
+    private func pmDeleteDirectory(nodeID: String?, resultPath: String) {
+        try? Data().write(to: URL(fileURLWithPath: resultPath))
+        Task { @MainActor in
+            guard let nodeID else {
+                Self.writeJSONErrorStatic(
+                    ["error": "nodeID required"], to: resultPath)
+                return
+            }
+            let store = WorkspaceStore.shared
+            guard let node = findNode(byID: nodeID, in: store) else {
+                Self.writeJSONErrorStatic(
+                    ["error": "nodeID not found", "nodeID": nodeID],
+                    to: resultPath)
+                return
+            }
+            do {
+                try await PMFileOperations.delete(node: node, store: store)
+                let payload: [String: Any] = ["ok": true, "nodeID": nodeID]
+                if let data = try? JSONSerialization.data(
+                    withJSONObject: payload,
+                    options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: resultPath))
+                }
+            } catch {
+                Self.writeJSONErrorStatic(
+                    ["ok": false, "error": "\(error)"], to: resultPath)
             }
         }
     }

@@ -155,6 +155,70 @@ final class ConnectorTreeViewModel: ObservableObject {
         "tree.rootShowsPath.\(connectorID)"
     }
 
+    // MARK: - D23.1 tree splice
+
+    /// Insert or update `node` in the cached children of `parentPath`.
+    /// Used by mutation paths (create / saveAs / newFile / rename /
+    /// move) to refresh the sidebar without a full refetch — closes
+    /// the `TODO-D23-tree-splice` debt that's been carried since D23
+    /// phase 2. PortableMind only in v1 (Local refreshes via
+    /// FolderTreeWatcher; LocalConnector returns nil from
+    /// childrenSync's mutated cache and async children aren't
+    /// populated).
+    ///
+    /// If no children are loaded for `parentPath` yet, this is a
+    /// no-op — when the user later expands that path, the load picks
+    /// up the new node from the server.
+    /// Maintains the existing tree's "directories first, alphabetic
+    /// case-insensitive within each group" ordering.
+    func upsertNode(_ node: ConnectorNode, parentPath: String) {
+        guard var kids = asyncChildren[parentPath] else { return }
+        if let existing = kids.firstIndex(where: { $0.id == node.id }) {
+            kids[existing] = node
+        } else {
+            kids.append(node)
+        }
+        // Re-sort to match children(of:) ordering: directories first,
+        // alphabetic case-insensitive within each group.
+        kids.sort { lhs, rhs in
+            if (lhs.kind == .directory) != (rhs.kind == .directory) {
+                return lhs.kind == .directory
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                == .orderedAscending
+        }
+        asyncChildren[parentPath] = kids
+    }
+
+    /// Remove a node by id from the cached children of `parentPath`,
+    /// and recursively remove any cached descendants. Used by delete
+    /// paths to cascade the splice — both the deleted node disappears
+    /// from its parent's child list AND any cached children of the
+    /// deleted node (e.g., if a directory was expanded before delete)
+    /// get evicted from `asyncChildren` so a subsequent expand re-
+    /// fetches.
+    func removeNode(id nodeID: String, parentPath: String) {
+        guard var kids = asyncChildren[parentPath] else { return }
+        // Find the node being removed so we can evict its descendant
+        // cache entries by path prefix.
+        let removed = kids.first(where: { $0.id == nodeID })
+        kids.removeAll(where: { $0.id == nodeID })
+        asyncChildren[parentPath] = kids
+
+        if let removed, removed.kind == .directory {
+            // Evict any asyncChildren entry under the deleted dir's
+            // path. Use trailing-/ boundary so /foo doesn't match
+            // /foobar.
+            let prefix = removed.path.hasSuffix("/")
+                ? removed.path
+                : removed.path + "/"
+            for key in asyncChildren.keys
+                where key == removed.path || key.hasPrefix(prefix) {
+                asyncChildren.removeValue(forKey: key)
+            }
+        }
+    }
+
     // MARK: - Async load
 
     private func loadChildren(at path: String) async {

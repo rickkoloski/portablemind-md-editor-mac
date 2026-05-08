@@ -159,8 +159,110 @@ private struct ConnectorRowView: View {
                 .disabled(!node.connector.canWrite(node))
                 .accessibilityIdentifier(
                     AccessibilityIdentifiers.folderTreeRowMove(id: node.id))
+                // D23.1 — Delete file (PM only in v1).
+                Button("Delete…") {
+                    confirmAndDeleteFile(node)
+                }
+                .disabled(!node.connector.canWrite(node))
+                .accessibilityIdentifier(
+                    AccessibilityIdentifiers.folderTreeRowDelete(id: node.id))
+            }
+            // D23.1 — New Folder + Delete on PM directory rows.
+            // Local directories surface only in the deferred-follow-ups
+            // list (filesystem create/delete already work via the
+            // connector but the UX needs Trash/confirmation thinking).
+            if node.kind == .directory, node.connector is PortableMindConnector {
+                Divider()
+                Button("New Folder…") {
+                    WorkspaceStore.shared.requestCreateDirectory(in: node)
+                }
+                .accessibilityIdentifier(
+                    AccessibilityIdentifiers.folderTreeRowNewFolder(id: node.id))
+                // Don't surface Delete on the connector's own root row
+                // (level == 0); deleting the root would be nonsensical
+                // and the server probably 404's it anyway. Just guard.
+                if level > 0 {
+                    Button("Delete…") {
+                        confirmAndDeleteDirectory(node)
+                    }
+                    .accessibilityIdentifier(
+                        AccessibilityIdentifiers.folderTreeRowDelete(id: node.id))
+                }
             }
         }
+    }
+
+    /// D23.1 — confirmation NSAlert + delete file. Q1: stock NSAlert
+    /// (modal, accessible, no custom UI work). Q2: hard delete; the
+    /// server already deletes hard so the model matches.
+    private func confirmAndDeleteFile(_ node: ConnectorNode) {
+        let alert = NSAlert()
+        alert.messageText = "Delete '\(node.name)'?"
+        alert.informativeText = "This can't be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Delete")
+        let response = alert.runModal()
+        guard response == .alertSecondButtonReturn else { return }
+        Task { @MainActor in
+            do {
+                try await PMFileOperations.delete(
+                    node: node,
+                    store: WorkspaceStore.shared)
+            } catch {
+                // Surface the error in a follow-up alert. v1 keeps it
+                // simple; future polish can make this an inline banner.
+                let err = NSAlert()
+                err.messageText = "Delete failed"
+                err.informativeText = "\(error)"
+                err.alertStyle = .warning
+                err.runModal()
+            }
+        }
+    }
+
+    /// D23.1 — confirmation NSAlert + delete directory. Surfaces the
+    /// child count from already-loaded data when available (Q4).
+    private func confirmAndDeleteDirectory(_ node: ConnectorNode) {
+        let alert = NSAlert()
+        alert.messageText = "Delete '\(node.name)'?"
+        let count = childCountIfKnown(for: node)
+        if let count, count > 0 {
+            alert.informativeText =
+                "This will also delete \(count) item(s) inside. This can't be undone."
+        } else {
+            alert.informativeText = "This can't be undone."
+        }
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Delete")
+        let response = alert.runModal()
+        guard response == .alertSecondButtonReturn else { return }
+        Task { @MainActor in
+            do {
+                try await PMFileOperations.delete(
+                    node: node,
+                    store: WorkspaceStore.shared)
+            } catch {
+                let err = NSAlert()
+                err.messageText = "Delete failed"
+                err.informativeText = "\(error)"
+                err.alertStyle = .warning
+                err.runModal()
+            }
+        }
+    }
+
+    /// Best-effort child count for the delete-directory confirmation.
+    /// Reads from the cached children if loaded; returns nil otherwise.
+    /// Q4 says we may fall back to a server count fetch — v1 just
+    /// uses the cached value or omits the count from the message.
+    private func childCountIfKnown(for node: ConnectorNode) -> Int? {
+        if let count = node.fileCount, count > 0 { return count }
+        if let kids = viewModel.childrenIfLoaded(at: node.path) {
+            return kids.count
+        }
+        return nil
     }
 
     @ViewBuilder

@@ -35,6 +35,25 @@ enum PMFileOperations {
             newOrigin: newOrigin,
             newConnectorNode: newNode,
             newURL: newURL)
+        // D23.1 — splice into the cached tree so the sidebar
+        // refreshes without manual reload (closes TODO-D23-tree-splice).
+        // Also handled in the WorkspaceStore-aware overload below.
+        return newNode
+    }
+
+    /// D23 phase 2 + D23.1 splice — saveAs variant that takes the
+    /// store so it can splice the new node into the cached tree.
+    /// Prefer this in modal/harness paths; the older `saveAs(doc:to:name:)`
+    /// stays for compatibility but doesn't splice.
+    @discardableResult
+    static func saveAs(doc: EditorDocument,
+                       to parent: ConnectorNode,
+                       name: String,
+                       store: WorkspaceStore) async throws -> ConnectorNode {
+        let newNode = try await saveAs(doc: doc, to: parent, name: name)
+        if let vm = store.treeViewModels[parent.connector.id] {
+            vm.upsertNode(newNode, parentPath: parent.path)
+        }
         return newNode
     }
 
@@ -55,6 +74,10 @@ enum PMFileOperations {
         // (from connector.canWrite), de-dupe, and focus. Empty source
         // for a brand-new file.
         _ = store.tabs.openFromConnector(content: "", node: newNode)
+        // D23.1 — splice into the cached tree.
+        if let vm = store.treeViewModels[parent.connector.id] {
+            vm.upsertNode(newNode, parentPath: parent.path)
+        }
         return newNode
     }
 
@@ -69,8 +92,14 @@ enum PMFileOperations {
     static func rename(node: ConnectorNode,
                        to newName: String,
                        store: WorkspaceStore) async throws -> ConnectorNode {
+        let parentP = parentPath(of: node.path)
         let refreshed = try await node.connector.renameFile(node, to: newName)
         updateOpenTabs(matching: refreshed, in: store)
+        // D23.1 — splice into the cached tree (rename keeps the same
+        // parent; upsert by id replaces the old entry in place).
+        if let vm = store.treeViewModels[node.connector.id] {
+            vm.upsertNode(refreshed, parentPath: parentP)
+        }
         return refreshed
     }
 
@@ -80,10 +109,90 @@ enum PMFileOperations {
     static func move(node: ConnectorNode,
                      to newParent: ConnectorNode,
                      store: WorkspaceStore) async throws -> ConnectorNode {
+        let oldParentPath = parentPath(of: node.path)
         let refreshed = try await node.connector.moveFile(
             node, to: newParent)
         updateOpenTabs(matching: refreshed, in: store)
+        // Splice: remove from old parent, upsert under new parent.
+        if let vm = store.treeViewModels[node.connector.id] {
+            vm.removeNode(id: node.id, parentPath: oldParentPath)
+            vm.upsertNode(refreshed, parentPath: newParent.path)
+        }
         return refreshed
+    }
+
+    // MARK: - D23.1 destructive ops + directory create
+
+    /// D23.1 — delete a file or directory. Hard delete (Q2). For files:
+    /// closes any open tab whose connectorNode matches. For directories:
+    /// closes any open tab whose connectorNode is inside the deleted
+    /// directory (path prefix with trailing-/ boundary, Q4). Splices
+    /// the cached tree to remove the node.
+    static func delete(node: ConnectorNode,
+                       store: WorkspaceStore) async throws {
+        let nodeParentPath = parentPath(of: node.path)
+        switch node.kind {
+        case .file:
+            try await node.connector.deleteFile(node)
+            closeTabsForFile(nodeID: node.id, in: store)
+        case .directory:
+            try await node.connector.deleteDirectory(node)
+            closeTabsInDirectory(path: node.path, in: store)
+        }
+        if let vm = store.treeViewModels[node.connector.id] {
+            vm.removeNode(id: node.id, parentPath: nodeParentPath)
+        }
+    }
+
+    /// D23.1 — create a new (empty) directory at `parent / name`.
+    /// Returns the new directory node. Splices into the cached tree.
+    @discardableResult
+    static func createDirectory(in parent: ConnectorNode,
+                                name: String,
+                                store: WorkspaceStore) async throws -> ConnectorNode {
+        let newNode = try await parent.connector.createDirectory(
+            in: parent, name: name)
+        if let vm = store.treeViewModels[parent.connector.id] {
+            vm.upsertNode(newNode, parentPath: parent.path)
+        }
+        return newNode
+    }
+
+    /// Close any open tab whose connectorNode.id matches `nodeID`.
+    /// Used by file delete.
+    private static func closeTabsForFile(nodeID: String,
+                                         in store: WorkspaceStore) {
+        let docs = store.tabs.documents
+        for doc in docs where doc.connectorNode?.id == nodeID {
+            store.tabs.close(id: doc.id)
+        }
+    }
+
+    /// Close any open tab whose connectorNode.path is the deleted
+    /// directory's path or starts with `<dirPath>/` (Q4 — trailing-/
+    /// boundary check so `/projects` deletion doesn't close
+    /// `/projects-old` tabs).
+    private static func closeTabsInDirectory(path dirPath: String,
+                                             in store: WorkspaceStore) {
+        let prefix = dirPath.hasSuffix("/") ? dirPath : dirPath + "/"
+        let docs = store.tabs.documents
+        for doc in docs {
+            guard let nodePath = doc.connectorNode?.path else { continue }
+            if nodePath == dirPath || nodePath.hasPrefix(prefix) {
+                store.tabs.close(id: doc.id)
+            }
+        }
+    }
+
+    /// Strip the last path component from `path`. Used by mutation paths
+    /// to know which `parentPath` to splice into. Connector paths use
+    /// `/` separators regardless of platform.
+    private static func parentPath(of path: String) -> String {
+        if let idx = path.lastIndex(of: "/") {
+            let parent = String(path[..<idx])
+            return parent.isEmpty ? "/" : parent
+        }
+        return "/"
     }
 
     /// Walk every open tab; if any has `connectorNode.id == refreshed.id`,

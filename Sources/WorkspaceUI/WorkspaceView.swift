@@ -34,6 +34,13 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.moveRequest) { request in
             MoveSheet(request: request, workspace: workspace)
         }
+        // D23.1 — Create Folder sheet. Bound to
+        // workspace.createDirectoryRequest. Driven by sidebar
+        // context menu (right-click → New Folder…) on PM directory
+        // rows.
+        .sheet(item: $workspace.createDirectoryRequest) { request in
+            CreateDirectorySheet(request: request, workspace: workspace)
+        }
     }
 
     @ViewBuilder

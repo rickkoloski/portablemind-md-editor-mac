@@ -228,6 +228,124 @@ final class PortableMindAPIClient {
             jsonBody: ["llm_file": ["directory_path": newDirectoryPath]])
     }
 
+    // MARK: - D23.1 destructive ops + directory create
+
+    /// `DELETE /api/v1/llm_files/:id`. Hard delete (no Trash).
+    func deleteFile(fileID: Int) async throws {
+        let url = base("/llm_files/\(fileID)")
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        try setAuthHeaders(&request)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        try await sendForGenericSuccess(request)
+    }
+
+    /// `POST /api/v1/llm_directories`. JSON body
+    /// `{llm_directory: {name, parent_path}}`. Returns the new
+    /// DirectoryDTO.
+    func createDirectory(parentPath: String,
+                         name: String) async throws -> DirectoryDTO {
+        let url = base("/llm_directories")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        try setAuthHeaders(&request)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "llm_directory": [
+                "name": name,
+                "parent_path": parentPath
+            ]
+        ]
+        do {
+            request.httpBody = try JSONSerialization.data(
+                withJSONObject: body, options: [])
+        } catch {
+            throw ConnectorError.network(error)
+        }
+        return try await sendForLlmDirectory(request)
+    }
+
+    /// `DELETE /api/v1/llm_directories/:id`. Cascade-deletes children.
+    func deleteDirectory(directoryID: Int) async throws {
+        let url = base("/llm_directories/\(directoryID)")
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        try setAuthHeaders(&request)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        try await sendForGenericSuccess(request)
+    }
+
+    /// Run `request` and decode as `LlmDirectoryShowResponse`. Status
+    /// code → ConnectorError mapping mirrors `sendForLlmFile`.
+    private func sendForLlmDirectory(_ request: URLRequest) async throws -> DirectoryDTO {
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw ConnectorError.network(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw ConnectorError.network(URLError(.badServerResponse))
+        }
+        switch http.statusCode {
+        case 200...299:
+            do {
+                let resp = try JSONDecoder().decode(
+                    LlmDirectoryShowResponse.self, from: data)
+                guard let dir = resp.llm_directory else {
+                    throw ConnectorError.server(
+                        status: http.statusCode,
+                        message: "missing llm_directory payload")
+                }
+                return dir
+            } catch {
+                throw ConnectorError.server(
+                    status: http.statusCode,
+                    message: "decode failed: \(error)")
+            }
+        case 401, 403:
+            let body = String(data: data, encoding: .utf8)
+            throw ConnectorError.writeForbidden(
+                body ?? "HTTP \(http.statusCode)")
+        case 402:
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw ConnectorError.storageQuotaExceeded(body)
+        default:
+            let body = String(data: data, encoding: .utf8)
+            throw ConnectorError.server(
+                status: http.statusCode, message: body)
+        }
+    }
+
+    /// Run `request` and check the response is a 2xx with optional
+    /// `{success: true}` body. Used by DELETE endpoints that return
+    /// no payload of interest. Throws the same ConnectorError variants
+    /// as the other senders for non-2xx.
+    private func sendForGenericSuccess(_ request: URLRequest) async throws {
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw ConnectorError.network(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw ConnectorError.network(URLError(.badServerResponse))
+        }
+        switch http.statusCode {
+        case 200...299:
+            return
+        case 401, 403:
+            let body = String(data: data, encoding: .utf8)
+            throw ConnectorError.writeForbidden(
+                body ?? "HTTP \(http.statusCode)")
+        default:
+            let body = String(data: data, encoding: .utf8)
+            throw ConnectorError.server(
+                status: http.statusCode, message: body)
+        }
+    }
+
     // MARK: - Internals — D23 helpers
 
     /// Common PATCH path for rename/move. JSON body (not multipart —

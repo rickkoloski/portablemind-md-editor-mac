@@ -219,6 +219,80 @@ final class LocalConnector: Connector {
             connector: self)
     }
 
+    // MARK: - D23.1 destructive ops + directory create
+
+    func deleteFile(_ node: ConnectorNode) async throws {
+        guard node.kind == .file else {
+            throw ConnectorError.unsupported(
+                "deleteFile called on directory node")
+        }
+        let url = URL(fileURLWithPath: node.path)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            // .fileNoSuchFile maps to a 404-style "already deleted"
+            // semantic. Surface as .server(404, ...) so the call site
+            // can treat it as success-ish if appropriate.
+            let nserr = error as NSError
+            if nserr.domain == NSCocoaErrorDomain
+               && nserr.code == NSFileNoSuchFileError {
+                throw ConnectorError.server(
+                    status: 404, message: "File no longer exists")
+            }
+            throw ConnectorError.network(error)
+        }
+    }
+
+    func createDirectory(in parent: ConnectorNode,
+                         name: String) async throws -> ConnectorNode {
+        guard parent.kind == .directory else {
+            throw ConnectorError.unsupported(
+                "createDirectory parent must be a directory")
+        }
+        let parentURL = URL(fileURLWithPath: parent.path)
+        let target = parentURL.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: target.path) {
+            throw ConnectorError.server(
+                status: 422,
+                message: "An item named '\(name)' already exists in '\(parent.name)'")
+        }
+        do {
+            try FileManager.default.createDirectory(
+                at: target,
+                withIntermediateDirectories: false)
+        } catch {
+            throw ConnectorError.network(error)
+        }
+        return ConnectorNode(
+            id: "\(id):\(target.path)",
+            name: name,
+            path: target.path,
+            kind: .directory,
+            fileCount: 0,
+            tenant: nil,
+            isSupported: true,
+            connector: self)
+    }
+
+    func deleteDirectory(_ node: ConnectorNode) async throws {
+        guard node.kind == .directory else {
+            throw ConnectorError.unsupported(
+                "deleteDirectory called on file node")
+        }
+        let url = URL(fileURLWithPath: node.path)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            let nserr = error as NSError
+            if nserr.domain == NSCocoaErrorDomain
+               && nserr.code == NSFileNoSuchFileError {
+                throw ConnectorError.server(
+                    status: 404, message: "Directory no longer exists")
+            }
+            throw ConnectorError.network(error)
+        }
+    }
+
     // MARK: - Walk
 
     private func walkChildren(of url: URL) -> [ConnectorNode] {

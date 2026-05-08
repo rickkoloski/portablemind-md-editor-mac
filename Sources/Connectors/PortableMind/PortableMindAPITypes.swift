@@ -30,6 +30,21 @@ struct LlmFileShowResponse: Decodable {
     let llm_file: FileDTO?
 }
 
+/// D23.1 — POST/GET /api/v1/llm_directories envelope.
+struct LlmDirectoryShowResponse: Decodable {
+    let success: Bool
+    let llm_directory: DirectoryDTO?
+}
+
+/// D23.1 — generic envelope for ops that return only `{success: bool}`
+/// (DELETE on llm_files / llm_directories). Caller checks status code
+/// for the truth; this just lets us decode without a missing-payload
+/// error on success.
+struct GenericSuccessResponse: Decodable {
+    let success: Bool
+    let error: String?
+}
+
 // MARK: - Entities
 
 struct DirectoryDTO: Decodable {

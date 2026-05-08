@@ -133,6 +133,28 @@ protocol Connector: AnyObject, Sendable {
     ///   differs from `node.tenant`.
     func moveFile(_ node: ConnectorNode,
                   to newParent: ConnectorNode) async throws -> ConnectorNode
+
+    // MARK: - D23.1 destructive ops + directory create
+
+    /// Delete the file at `node`. Hard delete — no Trash semantics in
+    /// v1 (Q2). Caller is responsible for confirmation UX.
+    /// - Throws: `.unsupported` if `node.kind != .file`;
+    ///   `.writeForbidden` on permission denial; `.network` on
+    ///   transport failure; `.server(404, ...)` if already deleted
+    ///   (treat 404 as success-ish at the call site if appropriate).
+    func deleteFile(_ node: ConnectorNode) async throws
+
+    /// Create a new (empty) directory at `parent / name`. Returns the
+    /// resulting directory node.
+    func createDirectory(in parent: ConnectorNode,
+                         name: String) async throws -> ConnectorNode
+
+    /// Delete the directory at `node`. Cascade-deletes all children
+    /// (files and subdirectories) — server-side semantic. v1 hard-delete
+    /// per Q2.
+    /// - Throws: `.unsupported` if `node.kind != .directory`;
+    ///   `.writeForbidden` on permission denial.
+    func deleteDirectory(_ node: ConnectorNode) async throws
 }
 
 extension Connector {
@@ -166,6 +188,24 @@ extension Connector {
                   to newParent: ConnectorNode) async throws -> ConnectorNode {
         throw ConnectorError.unsupported(
             "moveFile not implemented by \(type(of: self))")
+    }
+
+    // MARK: - D23.1 defaults
+
+    func deleteFile(_ node: ConnectorNode) async throws {
+        throw ConnectorError.unsupported(
+            "deleteFile not implemented by \(type(of: self))")
+    }
+
+    func createDirectory(in parent: ConnectorNode,
+                         name: String) async throws -> ConnectorNode {
+        throw ConnectorError.unsupported(
+            "createDirectory not implemented by \(type(of: self))")
+    }
+
+    func deleteDirectory(_ node: ConnectorNode) async throws {
+        throw ConnectorError.unsupported(
+            "deleteDirectory not implemented by \(type(of: self))")
     }
 }
 

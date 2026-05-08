@@ -292,6 +292,66 @@ final class PortableMindConnector: Connector {
         return self.node(from: dto)
     }
 
+    // MARK: - D23.1 destructive ops + directory create
+
+    func deleteFile(_ node: ConnectorNode) async throws {
+        guard node.kind == .file else {
+            throw ConnectorError.unsupported(
+                "deleteFile called on directory node")
+        }
+        let fileID = try Self.fileID(from: node, connectorID: id)
+        try await api.deleteFile(fileID: fileID)
+    }
+
+    func createDirectory(in parent: ConnectorNode,
+                         name: String) async throws -> ConnectorNode {
+        guard parent.kind == .directory else {
+            throw ConnectorError.unsupported(
+                "createDirectory parent must be a directory")
+        }
+        let dto = try await api.createDirectory(
+            parentPath: parent.path, name: name)
+        return directoryNode(from: dto)
+    }
+
+    func deleteDirectory(_ node: ConnectorNode) async throws {
+        guard node.kind == .directory else {
+            throw ConnectorError.unsupported(
+                "deleteDirectory called on file node")
+        }
+        let dirID = try Self.directoryID(from: node, connectorID: id)
+        try await api.deleteDirectory(directoryID: dirID)
+    }
+
+    /// Build a `ConnectorNode` from a server DirectoryDTO. Mirrors the
+    /// node construction in `children(of:)`.
+    private func directoryNode(from dto: DirectoryDTO) -> ConnectorNode {
+        return ConnectorNode(
+            id: "\(id):dir:\(dto.id)",
+            name: dto.name,
+            path: dto.path,
+            kind: .directory,
+            fileCount: dto.file_count ?? 0,
+            tenant: tenantInfo(from: dto),
+            isSupported: true,
+            connector: self)
+    }
+
+    /// Parse the numeric LlmDirectory id out of a `ConnectorNode.id` of
+    /// the form `"<connectorID>:dir:<id>"`. Static so this and any
+    /// future directory-mutation method share the parser.
+    private static func directoryID(from node: ConnectorNode,
+                                    connectorID: String) throws -> Int {
+        let prefix = "\(connectorID):dir:"
+        guard node.id.hasPrefix(prefix),
+              let dirID = Int(node.id.dropFirst(prefix.count))
+        else {
+            throw ConnectorError.unsupported(
+                "couldn't parse PM directory id from node id \(node.id)")
+        }
+        return dirID
+    }
+
     // MARK: - Helpers
 
     private func tenantInfo(from dto: DirectoryDTO) -> TenantInfo? {

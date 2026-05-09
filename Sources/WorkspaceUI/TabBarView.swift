@@ -119,6 +119,10 @@ private struct TabItemView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(AccessibilityIdentifiers.tabButton(documentID: document.id))
         .accessibilityLabel(document.displayName)
+        // D25 — hover tooltip with the tab's full canonical path. Empty
+        // string suppresses the tooltip (untitled local docs have no
+        // path to show).
+        .help(PathFormatting.absolutePathForCopy(document) ?? "")
         // D22 — tab right-click context menu. Mirrors the tree row's
         // D21 affordances but operates on the open document, so the
         // path is reachable without locating the file in the sidebar

@@ -63,21 +63,33 @@ struct WorkspaceView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(workspace.connectors, id: \.id) { connector in
-                        if let model = workspace.treeViewModels[connector.id] {
-                            ConnectorTreeView(viewModel: model) { node in
-                                handleSelect(node, on: connector)
+            // D25 — wrap in `ScrollViewReader` so `revealInTree`'s
+            // pending scroll-target can drive `proxy.scrollTo(nodeID,
+            // anchor: .center)`. Each row's identity comes from
+            // `ForEach(... id: \.id)` in `ConnectorTreeView`, so
+            // `nodeID` matches the connector-qualified node id.
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(workspace.connectors, id: \.id) { connector in
+                            if let model = workspace.treeViewModels[connector.id] {
+                                ConnectorTreeView(viewModel: model) { node in
+                                    handleSelect(node, on: connector)
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier(AccessibilityIdentifiers.folderTree)
+                .onChange(of: workspace.pendingRevealNodeID) { newValue in
+                    guard let id = newValue else { return }
+                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+                    workspace.clearReveal()
+                }
             }
-            .accessibilityIdentifier(AccessibilityIdentifiers.folderTree)
         }
     }
 

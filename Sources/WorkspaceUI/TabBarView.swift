@@ -115,14 +115,21 @@ private struct TabItemView: View {
                             lineWidth: isFocused ? 1 : 0.5)
             )
             .contentShape(Rectangle())
+            // D25 — hover tooltip with the tab's full canonical path.
+            // Applied INSIDE the Button label rather than after
+            // `.buttonStyle(.plain)` because SwiftUI's `.help()` on the
+            // outer Button doesn't reliably forward to the underlying
+            // NSView when the button uses plain style with custom
+            // content. Mirrors the working `.help()` placement on the
+            // warning-triangle / READ-ONLY badge / dirty-dot leaves.
+            // Untitled local tabs fall back to `displayName` so hover
+            // still names the tab.
+            .help(PathFormatting.absolutePathForCopy(document)
+                  ?? document.displayName)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(AccessibilityIdentifiers.tabButton(documentID: document.id))
         .accessibilityLabel(document.displayName)
-        // D25 — hover tooltip with the tab's full canonical path. Empty
-        // string suppresses the tooltip (untitled local docs have no
-        // path to show).
-        .help(PathFormatting.absolutePathForCopy(document) ?? "")
         // D22 — tab right-click context menu. Mirrors the tree row's
         // D21 affordances but operates on the open document, so the
         // path is reachable without locating the file in the sidebar
@@ -142,6 +149,19 @@ private struct TabItemView: View {
                 }
                 .keyboardShortcut("c", modifiers: [.command, .option, .shift])
             }
+            // D25 — Reveal in File Tree. Expands sidebar ancestors and
+            // scrolls to the file's row. If the file is outside any
+            // currently-loaded connector tree (Local outside workspace,
+            // PM tab with no PM connector, untitled), surfaces a stock
+            // NSAlert with the full path.
+            Divider()
+            Button("Reveal in File Tree") {
+                Task { @MainActor in
+                    await WorkspaceStore.shared.revealInTree(document: document)
+                }
+            }
+            .accessibilityIdentifier(
+                AccessibilityIdentifiers.tabReveal(documentID: document.id))
         }
     }
 }

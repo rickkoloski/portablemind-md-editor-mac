@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -53,6 +54,13 @@ final class WorkspaceStore: ObservableObject {
         let id = UUID()
         let node: ConnectorNode
     }
+
+    /// D25 — transient scroll-target for "Reveal in File Tree". The
+    /// sidebar's `ScrollViewReader` observes this via `.onChange` and
+    /// scrolls to the matching row, then clears via `clearReveal()`.
+    /// String form is the connector-qualified node id (matches the row's
+    /// ForEach identity in `ConnectorTreeView`).
+    @Published var pendingRevealNodeID: String?
 
     /// D23.1 — pending Create Folder request driving CreateDirectorySheet.
     @Published var createDirectoryRequest: CreateDirectoryRequest?
@@ -283,5 +291,140 @@ final class WorkspaceStore: ObservableObject {
 
     func dismissCreateDirectory() {
         createDirectoryRequest = nil
+    }
+
+    // MARK: - D25 Reveal in File Tree
+
+    /// Expand sidebar ancestors of `document`'s file and scroll the tree
+    /// to its row. If the file isn't under any currently-loaded
+    /// connector tree, surfaces a stock NSAlert ("This file is outside
+    /// currently open directories") with the full path.
+    ///
+    /// Sequence:
+    /// 1. Resolve which connector / view-model owns this document and
+    ///    compute the target node id + ancestor path list.
+    /// 2. `await viewModel.expand(path:)` for each ancestor in
+    ///    root-to-parent order. PortableMind expansion is async (chains
+    ///    through `connector.children(of:)`); Local is sync but
+    ///    serialised through the same API.
+    /// 3. Brief `Task.sleep` so SwiftUI can render the freshly-expanded
+    ///    rows before the scroll target is published — `proxy.scrollTo`
+    ///    only finds rows that are already in the rendered tree.
+    /// 4. Set `pendingRevealNodeID`; the sidebar's `.onChange(of:)`
+    ///    consumes it.
+    func revealInTree(document: EditorDocument) async {
+        guard let target = resolveRevealTarget(for: document) else {
+            outsideTreeAlert(for: document)
+            return
+        }
+        for ancestor in target.ancestorPaths {
+            await target.viewModel.expand(path: ancestor)
+        }
+        // Let SwiftUI lay out the newly-expanded rows before publishing
+        // the scroll target. 50ms is empirical headroom; if a deeply
+        // nested path proves brittle we can move to a `.task(id:)`
+        // sidebar modifier so the scroll runs after the body re-evaluates.
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        pendingRevealNodeID = target.nodeID
+    }
+
+    func clearReveal() {
+        pendingRevealNodeID = nil
+    }
+
+    private struct RevealTarget {
+        let viewModel: ConnectorTreeViewModel
+        let nodeID: String
+        /// Ancestor paths from connector root down to (but not
+        /// including) the file itself. Order matters: top-down so each
+        /// expansion's children are loaded before the next ancestor's
+        /// path is checked.
+        let ancestorPaths: [String]
+    }
+
+    private func resolveRevealTarget(for document: EditorDocument) -> RevealTarget? {
+        switch document.origin {
+        case .local:
+            guard let url = document.url else { return nil }
+            guard let local = connectors.first(where: { $0.id == "local" }),
+                  let model = treeViewModels[local.id]
+            else { return nil }
+            let rootPath = local.rootNode.path
+            // File must be at or under the workspace root.
+            guard url.path == rootPath
+                    || url.path.hasPrefix(rootPath + "/") else { return nil }
+            return RevealTarget(
+                viewModel: model,
+                nodeID: "local:\(url.path)",
+                ancestorPaths: ancestorPathsFromRoot(
+                    rootPath: rootPath,
+                    nodePath: url.path,
+                    separator: "/"))
+
+        case .portableMind(let connectorID, _, let displayPath):
+            guard let pm = connectors.first(where: { $0.id == connectorID }),
+                  let model = treeViewModels[pm.id],
+                  let node = document.connectorNode
+            else { return nil }
+            let rootPath = pm.rootNode.path  // "" for PortableMind
+            return RevealTarget(
+                viewModel: model,
+                nodeID: node.id,
+                ancestorPaths: ancestorPathsFromRoot(
+                    rootPath: rootPath,
+                    nodePath: displayPath,
+                    separator: "/"))
+        }
+    }
+
+    /// Build the ancestor list from `rootPath` down to (but not
+    /// including) `nodePath`. Both paths use `separator`; PortableMind's
+    /// rootPath is the empty string so the first ancestor is `""` and
+    /// each subsequent ancestor is `/seg1`, `/seg1/seg2`, ...
+    /// Local's rootPath is absolute (`/Users/...`) so ancestors are
+    /// `/Users/...`, `/Users/.../seg1`, `/Users/.../seg1/seg2`, ...
+    private func ancestorPathsFromRoot(rootPath: String,
+                                       nodePath: String,
+                                       separator: Character) -> [String] {
+        var ancestors: [String] = [rootPath]
+        // Strip the root prefix so we can walk components below it.
+        let relative: String
+        if rootPath.isEmpty {
+            relative = nodePath
+        } else if nodePath == rootPath {
+            return ancestors
+        } else if nodePath.hasPrefix(rootPath + String(separator)) {
+            relative = String(nodePath.dropFirst(rootPath.count + 1))
+        } else {
+            // Not under root — caller already validated, but stay safe.
+            return ancestors
+        }
+        let segments = relative
+            .split(separator: separator, omittingEmptySubsequences: true)
+            .map(String.init)
+        // Drop the file's own name; only intermediate dirs need expansion.
+        let dirSegments = segments.dropLast()
+        var accumulated = rootPath
+        for segment in dirSegments {
+            if accumulated.isEmpty {
+                accumulated = "\(separator)\(segment)"
+            } else if accumulated == String(separator) {
+                accumulated = "\(separator)\(segment)"
+            } else {
+                accumulated = "\(accumulated)\(separator)\(segment)"
+            }
+            ancestors.append(accumulated)
+        }
+        return ancestors
+    }
+
+    private func outsideTreeAlert(for document: EditorDocument) {
+        let alert = NSAlert()
+        alert.messageText = "This file is outside currently open directories"
+        alert.informativeText = PathFormatting.absolutePathForCopy(document)
+            ?? document.displayName
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }

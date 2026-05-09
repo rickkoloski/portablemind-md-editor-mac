@@ -81,4 +81,9 @@ enum AccessibilityIdentifiers {
     static func tabCloseButton(documentID: UUID) -> String {
         "md-editor.tabs.close:\(documentID.uuidString)"
     }
+
+    /// D25 — context-menu "Reveal in File Tree" item per tab.
+    static func tabReveal(documentID: UUID) -> String {
+        "md-editor.tabs.reveal:\(documentID.uuidString)"
+    }
 }

@@ -117,16 +117,18 @@ Cross-deliverable guardrails live in [`docs/engineering-standards_ref.md`](docs/
 
 ## Status
 
-| Deliverable | State |
+Grouped by area. Full per-deliverable ordering, change log, and supersession history live in [`docs/roadmap_ref.md`](docs/roadmap_ref.md).
+
+| Area | State |
 |---|---|
-| D1 — TextKit 2 live-render spike | ✅ shipped |
-| D2 — Project scaffolding | ✅ shipped |
-| D3 — Packaging (DMG + notarization) | ⏸ deferred (Apple Developer renewal) |
-| D4 — Mutation primitives + keyboard bindings | ✅ shipped |
-| D5 — Formatting toolbar | ✅ shipped |
-| D6 — Workspace foundation (folder tree, tabs, CLI) | ✅ shipped |
-| D7 — PortableMind integration | ⏳ queued (design contemplation) |
-| D8 — GFM table rendering | 📝 triad drafted |
+| **Foundation** — project scaffolding, source-mutation primitives, formatting toolbar | ✅ shipped (D1, D2, D4, D5) |
+| **Workspace** — folder-tree sidebar, tabs, multi-file external-edit watcher, `CommandSurface` + URL scheme + CLI shim, scroll-to-line, toggleable line numbers, tab path affordances, tab tooltip + Reveal in File Tree | ✅ shipped (D6, D9–D11, D21, D22, D25) |
+| **GFM table rendering** — native `NSTextTable` under TextKit 1; responsive column layout (CSS-Tables §3.9 slack-proportional + narrow-column threshold lock-in) | ✅ shipped (D16, D17, D24, D24.2). Earlier TextKit 2 deliverables (D8, D8.1, D12, D13, D15, D15.1) retired by D17 |
+| **Persistence & connectors** — local `Save` / `Save As`, `Connector` abstraction, PortableMind directory tree + save-back, full PM file management (Save As / New File / Rename / Move / Delete / New Folder) | ✅ shipped (D14, D18, D19, D23, D23.1) |
+| **Submit / Handoff** — Level 2 agent-aware verb; standalone-mode v1 with toolbar Submit button, per-session sidecar dir, save-then-submit semantics, heartbeat-based staleness pruning. First deliverable in the D3x agent-loop series. | ✅ shipped (D30) |
+| **Connection-management UX** — Finder-style sign-in workflow; replaces the dev-only Debug-menu token affordance | ⏳ queued (D20) |
+| **File-operations follow-ups** — directory rename/move, multi-select, drag-drop, cross-connector ops, Local-side delete/create-folder UI | ⏳ reserved (D26–D29) |
+| **Packaging** — Sparkle, DMG, Developer ID, notarization | ⏸ deferred (D3 — gates on Apple Developer Program renewal) |
 
 ---
 

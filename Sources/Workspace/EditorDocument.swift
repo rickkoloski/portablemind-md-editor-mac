@@ -61,6 +61,11 @@ final class EditorDocument: ObservableObject, Identifiable {
     /// see the new server timestamp.
     private(set) var connectorNode: ConnectorNode?
 
+    /// D30 — sessions interested in this tab's Submit events.
+    /// v1 caps the active set at 1 (current dogfood reality). Array
+    /// shape is forward-compat insurance for a possible n:m UX.
+    @Published private(set) var interestedSessions: [SessionInterest] = []
+
     let documentType: any DocumentType
 
     private let watcher = ExternalEditWatcher()

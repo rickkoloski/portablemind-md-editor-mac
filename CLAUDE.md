@@ -184,6 +184,14 @@ This project follows the SDLC framework from `~/src/ops/sdlc/`, using the **Nati
 
 ---
 
+## Submit / Handoff agent convention (D30)
+
+When this codebase is opened in md-editor with a `--session=<id>` flag (the CLI shim auto-defaults from `${MD_EDITOR_SESSION_ID:-$TERM_SESSION_ID}`), the user can click **Submit** on the toolbar (or `⌘⏎`) to hand the doc back. A JSON sidecar lands at `~/Library/Application Support/ai.portablemind.md-editor/submits/<session_id>/`.
+
+**Full convention + agent-side recipe:** `docs/integration/claude_md_addition.md`. Copy-paste-shaped for the CLAUDE.md of any project where a CC session uses md-editor as a review surface. Future md-editor distro package will bundle the asset as a help / startup-hint surface.
+
+---
+
 ## CD/CC collaboration
 
 **CD** is Rick. **CC** is me (Claude Code). The CD/CC collaboration model (`~/src/ops/sdlc/operations/collaboration_model.md`) applies:

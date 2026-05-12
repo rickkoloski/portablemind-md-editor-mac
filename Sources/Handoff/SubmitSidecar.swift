@@ -130,4 +130,25 @@ enum SubmitSidecar {
         let digest = SHA256.hash(data: Data(path.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
+
+    /// D30 phase 4 — staleness predicate for a session's heartbeat.
+    ///
+    /// Returns `true` when:
+    /// - the session's sidecar dir doesn't exist, OR
+    /// - `heartbeat.json` is missing under that dir, OR
+    /// - `heartbeat.json`'s mtime is older than `thresholdSec` seconds.
+    ///
+    /// `thresholdSec ≤ 0` means "never stale" (disable knob).
+    static func isStale(forSession sessionID: String, thresholdSec: TimeInterval) -> Bool {
+        guard thresholdSec > 0 else { return false }
+        do {
+            let hb = try heartbeatURL(forSession: sessionID)
+            guard FileManager.default.fileExists(atPath: hb.path) else { return true }
+            let attrs = try FileManager.default.attributesOfItem(atPath: hb.path)
+            guard let mtime = attrs[.modificationDate] as? Date else { return true }
+            return Date().timeIntervalSince(mtime) > thresholdSec
+        } catch {
+            return true
+        }
+    }
 }

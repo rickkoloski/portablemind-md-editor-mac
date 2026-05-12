@@ -25,6 +25,10 @@ struct MdEditorApp: App {
                 })
                 .onAppear {
                     workspace.restoreFromBookmarks()
+                    // D30 phase 4 — periodic prune of stale session
+                    // interests. Disable via UserDefaults
+                    // `submitStalenessTimeoutSec` ≤ 0.
+                    HeartbeatPruner.shared.start()
                     // TEST-HARNESS: start the debug command-file poller
                     // so external drivers can inspect / drive editor
                     // state. Compiled out of release builds.

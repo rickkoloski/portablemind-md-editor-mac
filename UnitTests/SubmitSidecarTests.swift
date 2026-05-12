@@ -210,6 +210,48 @@ final class SubmitSidecarTests: XCTestCase {
         XCTAssertTrue(url.deletingLastPathComponent().lastPathComponent == "cc1")
     }
 
+    // MARK: - Staleness predicate (D30 phase 4)
+
+    func testIsStaleReturnsFalseWhenThresholdIsZeroOrNegative() {
+        let sessionID = uniqueSessionID()
+        XCTAssertFalse(SubmitSidecar.isStale(forSession: sessionID, thresholdSec: 0))
+        XCTAssertFalse(SubmitSidecar.isStale(forSession: sessionID, thresholdSec: -1))
+    }
+
+    func testIsStaleReturnsTrueWhenHeartbeatMissing() throws {
+        let sessionID = uniqueSessionID()
+        defer { cleanupSession(sessionID) }
+        XCTAssertTrue(SubmitSidecar.isStale(forSession: sessionID, thresholdSec: 60))
+    }
+
+    func testIsStaleReturnsFalseForFreshHeartbeat() throws {
+        let sessionID = uniqueSessionID()
+        defer { cleanupSession(sessionID) }
+
+        let hb = try SubmitSidecar.heartbeatURL(forSession: sessionID)
+        try FileManager.default.createDirectory(at: hb.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: hb)
+
+        XCTAssertFalse(SubmitSidecar.isStale(forSession: sessionID, thresholdSec: 60))
+    }
+
+    func testIsStaleReturnsTrueForOldHeartbeat() throws {
+        let sessionID = uniqueSessionID()
+        defer { cleanupSession(sessionID) }
+
+        let hb = try SubmitSidecar.heartbeatURL(forSession: sessionID)
+        try FileManager.default.createDirectory(at: hb.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: hb)
+
+        let oldDate = Date(timeIntervalSinceNow: -3600)
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate], ofItemAtPath: hb.path)
+
+        XCTAssertTrue(SubmitSidecar.isStale(forSession: sessionID, thresholdSec: 300))
+    }
+
     // MARK: - Helpers
 
     private func uniqueSessionID() -> String {

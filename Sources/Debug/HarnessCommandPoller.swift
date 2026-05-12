@@ -393,6 +393,11 @@ final class HarnessCommandPoller {
         case "dump_session_interest":
             dumpSessionInterest(to: params["path"] as? String
                 ?? "/tmp/mdeditor-session-interest.json")
+        // D30 phase 4 — drive the prune sweep on demand rather than
+        // waiting 5 minutes.
+        case "force_staleness_sweep":
+            forceStalenessSweep(to: params["path"] as? String
+                ?? "/tmp/mdeditor-staleness-sweep.json")
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -1827,6 +1832,26 @@ final class HarnessCommandPoller {
             return store.tabs.documents[tabIndex]
         }
         return store.tabs.focused
+    }
+
+    // MARK: - D30 phase 4 staleness sweep
+
+    private func forceStalenessSweep(to path: String) {
+        let beforeCount = WorkspaceStore.shared.tabs.documents
+            .reduce(0) { $0 + $1.interestedSessions.count }
+        HeartbeatPruner.shared.sweep()
+        let afterCount = WorkspaceStore.shared.tabs.documents
+            .reduce(0) { $0 + $1.interestedSessions.count }
+        let payload: [String: Any] = [
+            "ok": true,
+            "stalenessTimeoutSec": HeartbeatPruner.shared.currentStalenessTimeout(),
+            "interestCountBefore": beforeCount,
+            "interestCountAfter": afterCount
+        ]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
     }
 }
 

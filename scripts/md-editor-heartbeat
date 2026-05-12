@@ -1,0 +1,51 @@
+#!/bin/bash
+# md-editor-heartbeat — CC-side helper to keep a session's interest
+# alive in md-editor's stale-interest sweep (D30).
+#
+# Usage:
+#   MD_EDITOR_SESSION_ID=cc1 ./scripts/md-editor-heartbeat &
+#   ...
+#   kill %1   # on session exit
+#
+# Cadence: every ${MD_EDITOR_HEARTBEAT_INTERVAL_SEC:-60} seconds.
+# Disable: set MD_EDITOR_HEARTBEAT_INTERVAL_SEC=0 (or negative) — the
+# script exits immediately without writing.
+#
+# The script writes a minimal JSON to:
+#   ~/Library/Application Support/ai.portablemind.md-editor/submits/<session>/heartbeat.json
+# The editor's HeartbeatPruner reads the file's mtime to decide whether
+# the session is still alive.
+
+set -euo pipefail
+
+session="${MD_EDITOR_SESSION_ID:-}"
+interval="${MD_EDITOR_HEARTBEAT_INTERVAL_SEC:-60}"
+
+if [[ -z "$session" ]]; then
+  echo "md-editor-heartbeat: MD_EDITOR_SESSION_ID is required" >&2
+  exit 2
+fi
+
+if ! [[ "$interval" =~ ^-?[0-9]+$ ]]; then
+  echo "md-editor-heartbeat: MD_EDITOR_HEARTBEAT_INTERVAL_SEC must be an integer: $interval" >&2
+  exit 2
+fi
+
+# Disable knob: 0 or negative interval exits immediately.
+if [[ "$interval" -le 0 ]]; then
+  exit 0
+fi
+
+base="$HOME/Library/Application Support/ai.portablemind.md-editor/submits"
+dir="$base/$session"
+hb="$dir/heartbeat.json"
+
+mkdir -p "$dir"
+
+cleanup() { exit 0; }
+trap cleanup INT TERM
+
+while true; do
+  printf '{"session_id":"%s","ts":%d}\n' "$session" "$(date +%s)" > "$hb"
+  sleep "$interval"
+done

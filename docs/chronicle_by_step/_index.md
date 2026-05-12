@@ -27,13 +27,19 @@ Each row links to the deliverable's COMPLETE doc inside its concept folder. Acti
 | 2026-04-26 | D17 | TextKit 1 migration — retired D8/D8.1/D12/D13/D15.1; ~3,200 lines deleted | [05_tables](../chronicle_by_concept/05_tables/) | `feature/d17-textkit1-migration` |
 | 2026-04-27 | D18 | Workspace connector + PortableMind directory tree (read-only) | [06_persistence_and_connectors](../chronicle_by_concept/06_persistence_and_connectors/) | `feature/d18-pm-connector` |
 | 2026-04-28 | D19 | PortableMind save-back — conflict-detection prompt; graceful fallback | [06_persistence_and_connectors](../chronicle_by_concept/06_persistence_and_connectors/) | `feature/d19-pm-save-back` |
+| 2026-05-05 | D24 | Responsive table column layout — 3-pass measure/distribute/apply; resolves i02 | [05_tables](../chronicle_by_concept/05_tables/) | `feature/d24-responsive-table-columns` |
+| 2026-05-06 | D24.2 | Slack-proportional column distribution + Q8 narrow-column lock-in; resolves i05, i06 | [05_tables](../chronicle_by_concept/05_tables/) | `feature/d24.2-slack-proportional-columns` |
+| 2026-05-08 | D23 | PortableMind file management — Save As / New File / Rename / Move | [06_persistence_and_connectors](../chronicle_by_concept/06_persistence_and_connectors/) | `feature/d23-pm-file-management` |
+| 2026-05-08 | D23.1 | PM delete-file + directory create/delete; closes TODO-D23-tree-splice | [06_persistence_and_connectors](../chronicle_by_concept/06_persistence_and_connectors/) | `feature/d23-pm-file-management` (shared with D23) |
+| 2026-05-08 | D25 | Tab tooltip + Reveal in File Tree — closes D22's deferred Reveal-in-Sidebar | [03_workspace](../chronicle_by_concept/03_workspace/) | `feature/d25-tab-tooltip-and-reveal` |
 
 ## Side-quests landed off main during D19
 
 | Date | ID | What | Where it lives |
 |---|---|---|---|
+| 2026-04-27 | D21 | File tree path affordances — Copy Path / Copy Relative Path on tree row context menu, root tooltip showing home-relative path, "Show Path in Tree" toggle on Local root. Shipped from commits alone, no SDLC triad. | `docs/roadmap_ref.md` (D21 row); referenced in `chronicle_by_concept/03_workspace/_index.md` Dependencies |
 | 2026-04-28 | i04 | Bearer-token persistence stopgap (file-based; replaces broken cdhash-bound Keychain ACL on ad-hoc-signed builds) | `docs/issues_backlog.md` (i04 entry); revert recipe included |
-| 2026-04-28 | D22 | Tab right-click context menu — Copy Path / Copy Relative Path | `docs/roadmap_ref.md` (D22 row); `Sources/WorkspaceUI/TabBarView.swift` |
+| 2026-04-28 | D22 | Tab right-click context menu — Copy Path / Copy Relative Path. Reveal-in-Sidebar deferred → closed by **D25** 2026-05-08. | `docs/roadmap_ref.md` (D22 row); `Sources/WorkspaceUI/TabBarView.swift` |
 
 ## Notation
 

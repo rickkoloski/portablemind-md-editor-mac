@@ -86,4 +86,12 @@ enum AccessibilityIdentifiers {
     static func tabReveal(documentID: UUID) -> String {
         "md-editor.tabs.reveal:\(documentID.uuidString)"
     }
+
+    // D30 — toolbar Submit button + dropdown + per-tab session badge.
+    static let toolbarSubmit = "md-editor.toolbar.submit"
+    static let toolbarSubmitDropdownSubmit = "md-editor.toolbar.submit.menu.submit"
+
+    static func tabSessionBadge(documentID: UUID) -> String {
+        "md-editor.tabs.session-badge:\(documentID.uuidString)"
+    }
 }

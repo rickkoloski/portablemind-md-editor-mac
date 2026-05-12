@@ -398,6 +398,13 @@ final class HarnessCommandPoller {
         case "force_staleness_sweep":
             forceStalenessSweep(to: params["path"] as? String
                 ?? "/tmp/mdeditor-staleness-sweep.json")
+        // D30 phase 5 — drive Submit on the focused tab. Wires the
+        // same SubmitDispatcher.submit the toolbar button calls.
+        case "submit_focused":
+            submitFocused(
+                message: params["message"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-submit.json")
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -1832,6 +1839,35 @@ final class HarnessCommandPoller {
             return store.tabs.documents[tabIndex]
         }
         return store.tabs.focused
+    }
+
+    // MARK: - D30 phase 5 submit
+
+    private func submitFocused(message: String?, resultPath: String) {
+        let store = WorkspaceStore.shared
+        guard let doc = store.tabs.focused else {
+            writeJSONError(["ok": false, "error": "no focused doc"], to: resultPath)
+            return
+        }
+        Task { @MainActor in
+            do {
+                let url = try await SubmitDispatcher.submit(document: doc, message: message)
+                let payload: [String: Any] = [
+                    "ok": true,
+                    "sidecarPath": url.path,
+                    "tabID": doc.id.uuidString,
+                    "displayName": doc.displayName
+                ]
+                if let data = try? JSONSerialization.data(
+                    withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: resultPath))
+                }
+            } catch {
+                self.writeJSONError(
+                    ["ok": false, "error": error.localizedDescription],
+                    to: resultPath)
+            }
+        }
     }
 
     // MARK: - D30 phase 4 staleness sweep

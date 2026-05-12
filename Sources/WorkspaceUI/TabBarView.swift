@@ -61,6 +61,20 @@ private struct TabItemView: View {
                     .foregroundStyle(isFocused ? .primary : .secondary)
                     .frame(maxWidth: 160, alignment: .leading)
 
+                // D30 — informational session badge. Visible whenever
+                // a session is registered on the tab. Sits alongside
+                // (not in place of) the dirty/read-only/saving group;
+                // the toolbar Submit button is the only Submit affordance.
+                if let interest = document.interestedSessions.first {
+                    let badgeHelp = "\(interest.label ?? interest.sessionID) is waiting"
+                    Circle()
+                        .fill(Color(nsColor: interest.color))
+                        .frame(width: 8, height: 8)
+                        .help(badgeHelp)
+                        .accessibilityIdentifier(AccessibilityIdentifiers.tabSessionBadge(documentID: document.id))
+                        .accessibilityLabel("session \(interest.sessionID) waiting")
+                }
+
                 // D18 phase 5 / D19 phase 3 — mutually exclusive
                 // status indicators on the tab.
                 if document.isReadOnly {

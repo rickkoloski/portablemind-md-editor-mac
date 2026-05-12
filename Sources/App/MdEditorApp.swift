@@ -80,6 +80,13 @@ struct MdEditorApp: App {
                         HeadingToolbarMenu()
                         ToolbarButton(action: .bulletList)
                         ToolbarButton(action: .numberedList)
+
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.35))
+                            .frame(width: 1, height: 16)
+                            .padding(.horizontal, 4)
+
+                        SubmitToolbarButton()
                     }
                     if settings.debugHUDVisible {
                         ToolbarItemGroup(placement: .primaryAction) {

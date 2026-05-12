@@ -375,6 +375,24 @@ final class HarnessCommandPoller {
                 ?? (params["pt"] as? Int).map(Double.init) {
                 setWindowWidth(CGFloat(widthVal))
             }
+        // D30 phase 3 — session interest lifecycle. Default-to-focused
+        // when `tabIndex` is omitted. {tabIndex?, session_id, label?}
+        case "register_session_interest":
+            registerSessionInterest(
+                tabIndex: params["tabIndex"] as? Int,
+                sessionID: params["session_id"] as? String,
+                label: params["label"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-session-register.json")
+        case "release_session_interest":
+            releaseSessionInterest(
+                tabIndex: params["tabIndex"] as? Int,
+                sessionID: params["session_id"] as? String,
+                resultPath: params["path"] as? String
+                    ?? "/tmp/mdeditor-session-release.json")
+        case "dump_session_interest":
+            dumpSessionInterest(to: params["path"] as? String
+                ?? "/tmp/mdeditor-session-interest.json")
         default:
             NSLog("[TEST-HARNESS] unknown action: \(action)")
         }
@@ -1712,6 +1730,103 @@ final class HarnessCommandPoller {
             try? data.write(to: URL(fileURLWithPath: resultPath))
             NSLog("[TEST-HARNESS] table layout → \(resultPath) (\(data.count) bytes)")
         }
+    }
+
+    // MARK: - D30 Session interest actions
+
+    private func registerSessionInterest(
+        tabIndex: Int?,
+        sessionID: String?,
+        label: String?,
+        resultPath: String
+    ) {
+        let store = WorkspaceStore.shared
+        guard let sessionID, !sessionID.isEmpty else {
+            writeJSONError(["ok": false, "error": "missing session_id"], to: resultPath)
+            return
+        }
+        guard let doc = resolveDoc(tabIndex: tabIndex, store: store) else {
+            writeJSONError(["ok": false, "error": "no matching tab"], to: resultPath)
+            return
+        }
+        store.registerInterest(sessionID: sessionID, on: doc, label: label)
+        let payload: [String: Any] = [
+            "ok": true,
+            "tabID": doc.id.uuidString,
+            "displayName": doc.displayName,
+            "session_id": sessionID,
+            "label": label as Any
+        ]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: resultPath))
+        }
+    }
+
+    private func releaseSessionInterest(
+        tabIndex: Int?,
+        sessionID: String?,
+        resultPath: String
+    ) {
+        let store = WorkspaceStore.shared
+        guard let sessionID, !sessionID.isEmpty else {
+            writeJSONError(["ok": false, "error": "missing session_id"], to: resultPath)
+            return
+        }
+        if let tabIndex {
+            guard tabIndex >= 0, tabIndex < store.tabs.documents.count else {
+                writeJSONError(["ok": false, "error": "tabIndex out of range"], to: resultPath)
+                return
+            }
+            store.tabs.documents[tabIndex].removeInterestedSession(sessionID: sessionID)
+        } else {
+            store.releaseInterest(sessionID: sessionID, scope: .all)
+        }
+        if let data = try? JSONSerialization.data(
+            withJSONObject: ["ok": true, "session_id": sessionID] as [String: Any],
+            options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: resultPath))
+        }
+    }
+
+    private func dumpSessionInterest(to path: String) {
+        let store = WorkspaceStore.shared
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var tabsPayload: [[String: Any]] = []
+        for (idx, doc) in store.tabs.documents.enumerated() {
+            let interests: [[String: Any]] = doc.interestedSessions.map { interest in
+                [
+                    "session_id": interest.sessionID,
+                    "label": interest.label as Any,
+                    "registered_at": iso.string(from: interest.registeredAt)
+                ]
+            }
+            tabsPayload.append([
+                "tabIndex": idx,
+                "tabID": doc.id.uuidString,
+                "displayName": doc.displayName,
+                "url": doc.url?.path as Any,
+                "interests": interests
+            ])
+        }
+        let payload: [String: Any] = [
+            "tabs": tabsPayload,
+            "focusedIndex": store.tabs.focusedIndex as Any
+        ]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+            NSLog("[TEST-HARNESS] session interest → \(path) (\(data.count) bytes)")
+        }
+    }
+
+    private func resolveDoc(tabIndex: Int?, store: WorkspaceStore) -> EditorDocument? {
+        if let tabIndex {
+            guard tabIndex >= 0, tabIndex < store.tabs.documents.count else { return nil }
+            return store.tabs.documents[tabIndex]
+        }
+        return store.tabs.focused
     }
 }
 

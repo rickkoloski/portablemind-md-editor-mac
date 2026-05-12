@@ -437,17 +437,28 @@ final class WorkspaceStore: ObservableObject {
         case all
     }
 
-    /// Register a session as interested in `doc`. Phase 2 is a stub
-    /// that records the signal; Phase 3 mutates
-    /// `doc.interestedSessions` and enforces the v1 1:1 cap.
+    /// Register a session as interested in `doc`. v1 1:1 cap means
+    /// any prior interest on the doc is replaced.
     func registerInterest(sessionID: String, on doc: EditorDocument, label: String? = nil) {
-        NSLog("D30 registerInterest(sessionID: \(sessionID), on: \(doc.displayName), label: \(label ?? "nil")) — stub (Phase 3)")
+        doc.setInterestedSession(SessionInterest.make(sessionID: sessionID, label: label))
     }
 
-    /// Release a session's interest. Phase 2 is a stub; Phase 3
-    /// iterates open tabs and clears matching `SessionInterest`
-    /// entries.
+    /// Release a session's interest. `.file(URL)` matches any open
+    /// tab whose `url.standardizedFileURL.path` equals the given
+    /// URL's; `.all` removes the session from every open tab.
     func releaseInterest(sessionID: String, scope: ReleaseScope) {
-        NSLog("D30 releaseInterest(sessionID: \(sessionID), scope: \(scope)) — stub (Phase 3)")
+        switch scope {
+        case .all:
+            for doc in tabs.documents {
+                doc.removeInterestedSession(sessionID: sessionID)
+            }
+        case .file(let url):
+            let target = url.standardizedFileURL.path
+            for doc in tabs.documents {
+                if let docPath = doc.url?.standardizedFileURL.path, docPath == target {
+                    doc.removeInterestedSession(sessionID: sessionID)
+                }
+            }
+        }
     }
 }

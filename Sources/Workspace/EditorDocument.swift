@@ -66,6 +66,25 @@ final class EditorDocument: ObservableObject, Identifiable {
     /// shape is forward-compat insurance for a possible n:m UX.
     @Published private(set) var interestedSessions: [SessionInterest] = []
 
+    /// Replace the interest set with a single session (v1 1:1 cap).
+    /// Re-registering with a different session replaces the prior one.
+    func setInterestedSession(_ interest: SessionInterest) {
+        interestedSessions = [interest]
+    }
+
+    /// Remove a specific session's interest, leaving any others (n:m
+    /// future) untouched. Under v1's 1:1 cap, removing the lone
+    /// session empties the set.
+    func removeInterestedSession(sessionID: String) {
+        interestedSessions.removeAll { $0.sessionID == sessionID }
+    }
+
+    /// Drop all interest. Called implicitly via deallocation when a
+    /// tab is closed.
+    func clearInterestedSessions() {
+        interestedSessions = []
+    }
+
     let documentType: any DocumentType
 
     private let watcher = ExternalEditWatcher()

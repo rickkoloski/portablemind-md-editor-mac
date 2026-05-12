@@ -31,15 +31,41 @@ private struct HoverTooltipOverlay: NSViewRepresentable {
 /// Tab badge (small dot beside the dirty-dot) is informational only —
 /// it does not trigger Submit; the toolbar button is the single
 /// affordance.
+///
+/// **SwiftUI observation chain (two layers):**
+/// SwiftUI's `@ObservedObject` doesn't transitively subscribe to
+/// nested `ObservableObject`s. Two separate subscriptions are needed:
+///
+/// 1. **Focus changes** — observe `TabStore` directly. `WorkspaceStore`
+///    declares `let tabs = TabStore()` (a separate ObservableObject,
+///    not a `@Published` property), so observing `WorkspaceStore`
+///    alone misses tab-open / focused-index changes. `TabBarView`
+///    works for the same reason: it observes the TabStore directly.
+/// 2. **Interest-set changes** on the focused doc — the inner
+///    `ActiveDocSubmitButton` takes `@ObservedObject var document:
+///    EditorDocument` so mutations to `interestedSessions` trigger a
+///    body re-evaluation.
 struct SubmitToolbarButton: View {
-    @ObservedObject private var workspace = WorkspaceStore.shared
+    @ObservedObject private var tabs = WorkspaceStore.shared.tabs
 
-    private var focusedDoc: EditorDocument? {
-        workspace.tabs.focused
+    var body: some View {
+        if let doc = tabs.focused {
+            ActiveDocSubmitButton(document: doc)
+        } else {
+            DisabledSubmitMenu(
+                reason: "No active tab is connected to an AI Session")
+        }
     }
+}
+
+/// Inner view scoped to a single focused document. `@ObservedObject`
+/// gives us the per-doc subscription that propagates
+/// `interestedSessions` changes back into a body re-render.
+private struct ActiveDocSubmitButton: View {
+    @ObservedObject var document: EditorDocument
 
     private var interest: SessionInterest? {
-        focusedDoc?.interestedSessions.first
+        document.interestedSessions.first
     }
 
     private var helpText: String {
@@ -56,18 +82,11 @@ struct SubmitToolbarButton: View {
                 .keyboardShortcut(.return, modifiers: .command)
                 .accessibilityIdentifier(AccessibilityIdentifiers.toolbarSubmitDropdownSubmit)
         } label: {
-            Label("Submit", systemImage: "paperplane.fill")
-                .labelStyle(.iconOnly)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Color(red: 222/255, green: 222/255, blue: 222/255))
+            SubmitButtonLabel()
         }
         .disabled(interest == nil)
         .accessibilityIdentifier(AccessibilityIdentifiers.toolbarSubmit)
         .accessibilityLabel("Submit")
-        // Tooltip-on-disabled fallback: when the Menu is disabled, SwiftUI's
-        // `.help()` is suppressed. NSView.toolTip uses NSTrackingArea and
-        // fires regardless. Overlay is only hit-testable when disabled, so
-        // clicks pass through to the Menu when enabled.
         .overlay(
             HoverTooltipOverlay(text: helpText)
                 .allowsHitTesting(interest == nil)
@@ -75,10 +94,9 @@ struct SubmitToolbarButton: View {
     }
 
     private func performSubmit() {
-        guard let doc = focusedDoc else { return }
         Task {
             do {
-                _ = try await SubmitDispatcher.submit(document: doc)
+                _ = try await SubmitDispatcher.submit(document: document)
             } catch {
                 presentSubmitError(error)
             }
@@ -92,5 +110,38 @@ struct SubmitToolbarButton: View {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+}
+
+/// Rendered when there is no focused document at all (no open tabs).
+/// The Menu shape is preserved so the toolbar's layout stays stable
+/// across the empty-workspace transition.
+private struct DisabledSubmitMenu: View {
+    let reason: String
+
+    var body: some View {
+        Menu {
+            EmptyView()
+        } label: {
+            SubmitButtonLabel()
+        }
+        .disabled(true)
+        .accessibilityIdentifier(AccessibilityIdentifiers.toolbarSubmit)
+        .accessibilityLabel("Submit")
+        .overlay(
+            HoverTooltipOverlay(text: reason)
+                .allowsHitTesting(true)
+        )
+    }
+}
+
+/// Shared paperplane label so the active and disabled variants render
+/// pixel-identically.
+private struct SubmitButtonLabel: View {
+    var body: some View {
+        Label("Submit", systemImage: "paperplane.fill")
+            .labelStyle(.iconOnly)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(Color(red: 222/255, green: 222/255, blue: 222/255))
     }
 }

@@ -54,7 +54,7 @@ Markdown is today's format because it's where the agentic loop currently lives. 
 |---|---|
 | Language | Swift |
 | UI framework | SwiftUI primary, AppKit via `NSViewRepresentable` where needed |
-| Text-editing engine | TextKit 2 with `NSTextView` bridging |
+| Text-editing engine | TextKit 1 with `NSTextView` (`NSTextTable` for GFM tables) |
 | Markdown parser | swift-markdown (Apple), cmark-gfm for GFM-specific nodes |
 | File watching | NSFilePresenter for open docs, DispatchSourceFileSystemObject for folders |
 | Packaging (v1) | Direct-download DMG, Developer ID + notarization |

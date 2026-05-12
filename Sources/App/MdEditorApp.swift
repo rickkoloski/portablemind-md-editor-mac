@@ -80,12 +80,12 @@ struct MdEditorApp: App {
                         HeadingToolbarMenu()
                         ToolbarButton(action: .bulletList)
                         ToolbarButton(action: .numberedList)
-
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.35))
-                            .frame(width: 1, height: 16)
-                            .padding(.horizontal, 4)
-
+                    }
+                    // D30 — Submit lives in its own trailing group so
+                    // it visually separates from the editing/formatting
+                    // affordances. The agent-loop verb is conceptually
+                    // distinct from inline text editing.
+                    ToolbarItemGroup(placement: .primaryAction) {
                         SubmitToolbarButton()
                     }
                     if settings.debugHUDVisible {

@@ -80,12 +80,19 @@ struct MdEditorApp: App {
                         HeadingToolbarMenu()
                         ToolbarButton(action: .bulletList)
                         ToolbarButton(action: .numberedList)
-                    }
-                    // D30 — Submit lives in its own trailing group so
-                    // it visually separates from the editing/formatting
-                    // affordances. The agent-loop verb is conceptually
-                    // distinct from inline text editing.
-                    ToolbarItemGroup(placement: .primaryAction) {
+
+                        // D30 — visual separator before the Submit
+                        // affordance. SwiftUI's macOS Window-scene
+                        // toolbar doesn't honor placement-based right
+                        // alignment with multiple groups (.primaryAction
+                        // clusters with .automatic / .navigation), so
+                        // the verb-vs-formatting distinction lands
+                        // visually via the divider rather than position.
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.35))
+                            .frame(width: 1, height: 16)
+                            .padding(.horizontal, 4)
+
                         SubmitToolbarButton()
                     }
                     if settings.debugHUDVisible {

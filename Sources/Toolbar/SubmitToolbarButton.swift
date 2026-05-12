@@ -1,6 +1,26 @@
 import AppKit
 import SwiftUI
 
+/// SwiftUI's `.help()` on a `.disabled` control is suppressed by
+/// macOS's hover handling. NSView's `toolTip` property uses
+/// NSTrackingArea which fires regardless of enabled state — this
+/// wrapper overlays a hover-only tooltip surface that works on
+/// disabled buttons. Hit-testing is gated by the caller so clicks
+/// still reach the underlying control when it's enabled.
+private struct HoverTooltipOverlay: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.toolTip = text
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.toolTip = text
+    }
+}
+
 /// D30 phase 5 — toolbar Submit button.
 ///
 /// Button-with-dropdown shape (`Menu`). Acts on the currently focused
@@ -24,7 +44,7 @@ struct SubmitToolbarButton: View {
 
     private var helpText: String {
         guard let interest else {
-            return "No session waiting on this doc"
+            return "No active tab is connected to an AI Session"
         }
         let name = interest.label ?? interest.sessionID
         return "Submit to \(name) (⌘↩)"
@@ -40,11 +60,18 @@ struct SubmitToolbarButton: View {
                 .labelStyle(.iconOnly)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(Color(red: 222/255, green: 222/255, blue: 222/255))
-                .help(helpText)
         }
         .disabled(interest == nil)
         .accessibilityIdentifier(AccessibilityIdentifiers.toolbarSubmit)
         .accessibilityLabel("Submit")
+        // Tooltip-on-disabled fallback: when the Menu is disabled, SwiftUI's
+        // `.help()` is suppressed. NSView.toolTip uses NSTrackingArea and
+        // fires regardless. Overlay is only hit-testable when disabled, so
+        // clicks pass through to the Menu when enabled.
+        .overlay(
+            HoverTooltipOverlay(text: helpText)
+                .allowsHitTesting(interest == nil)
+        )
     }
 
     private func performSubmit() {

@@ -11,6 +11,19 @@
 #   Flags (D11, composable with any of the above, or used standalone):
 #     --line-numbers=on|off              # set line-number visibility
 #
+#   Flags (D30):
+#     --session=<id>                     # register session interest on
+#                                          the opened tab. If omitted,
+#                                          the shim falls back to
+#                                          ${MD_EDITOR_SESSION_ID:-$TERM_SESSION_ID}.
+#                                          Pass --session="" to suppress
+#                                          the fallback and open as a
+#                                          manual-open (no interest).
+#     --release [<file>|--all]           # release the named session's
+#                                          interest in <file>, or in
+#                                          every open tab.
+#                                          Requires --session=<id>.
+#
 # Engineering-standards §2.4: all external-entry handling happens
 # inside Sources/CommandSurface/. This script is a courier, not a
 # handler. **Discipline:** state-setter flags pass through the
@@ -20,13 +33,27 @@ set -euo pipefail
 
 BUNDLE_ID="ai.portablemind.md-editor"
 
-# D11: parse flags first (any order), leaving one positional arg.
+# D11 + D30: parse flags (any order), leaving one positional arg.
 line_numbers=""
+session_arg=""
+session_explicit=0
+release_action=0
+release_all=0
 positional=()
 for arg in "$@"; do
   case "$arg" in
     --line-numbers=*)
       line_numbers="${arg#--line-numbers=}"
+      ;;
+    --session=*)
+      session_arg="${arg#--session=}"
+      session_explicit=1
+      ;;
+    --release)
+      release_action=1
+      ;;
+    --all)
+      release_all=1
       ;;
     --)
       : # separator — future
@@ -41,6 +68,46 @@ for arg in "$@"; do
   esac
 done
 
+# D30: resolve effective session id.
+# Precedence: explicit --session=<id> (including empty string to opt
+# out) > MD_EDITOR_SESSION_ID > TERM_SESSION_ID. Empty string anywhere
+# in this chain means "no session" — register as manual-open.
+if [[ $session_explicit -eq 1 ]]; then
+  session_id="$session_arg"
+else
+  session_id="${MD_EDITOR_SESSION_ID:-${TERM_SESSION_ID:-}}"
+fi
+
+# D30: --release action. Independent of the open/set-view flow.
+if [[ $release_action -eq 1 ]]; then
+  if [[ -z "$session_id" ]]; then
+    echo "md-editor: --release requires --session=<id>" >&2
+    exit 2
+  fi
+  encoded_session="$(python3 -c 'import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$session_id")"
+  if [[ $release_all -eq 1 ]]; then
+    open "md-editor://release?session=${encoded_session}&all=true"
+    exit 0
+  fi
+  if [[ ${#positional[@]} -eq 0 ]]; then
+    echo "md-editor: --release requires either --all or a file path" >&2
+    exit 2
+  fi
+  if [[ ${#positional[@]} -gt 1 ]]; then
+    echo "md-editor: --release accepts one file path: ${positional[*]}" >&2
+    exit 2
+  fi
+  target="${positional[0]}"
+  if [[ ! -e "$target" ]]; then
+    echo "md-editor: --release target does not exist: $target" >&2
+    exit 1
+  fi
+  absolute="$(cd "$(dirname "$target")" && pwd)/$(basename "$target")"
+  encoded_path="$(python3 -c 'import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$absolute")"
+  open "md-editor://release?session=${encoded_session}&path=${encoded_path}"
+  exit 0
+fi
+
 if [[ ${#positional[@]} -gt 1 ]]; then
   echo "md-editor: too many positional arguments: ${positional[*]}" >&2
   exit 2
@@ -51,6 +118,13 @@ target="${positional[0]:-}"
 view_qs=""
 if [[ -n "$line_numbers" ]]; then
   view_qs="&line_numbers=${line_numbers}"
+fi
+
+# D30: compose session query param.
+session_qs=""
+if [[ -n "$session_id" ]]; then
+  encoded_session="$(python3 -c 'import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$session_id")"
+  session_qs="&session=${encoded_session}"
 fi
 
 if [[ -z "$target" ]]; then
@@ -102,7 +176,7 @@ if [[ -d "$absolute" ]]; then
   url="md-editor://open-folder?path=$encoded"
   open "$url"
 else
-  url="md-editor://open?path=$encoded&tab=existing${view_qs}"
+  url="md-editor://open?path=$encoded&tab=existing${view_qs}${session_qs}"
   if [[ -n "$line" ]]; then
     url="${url}&line=${line}"
   fi

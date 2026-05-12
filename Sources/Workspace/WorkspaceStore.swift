@@ -427,4 +427,27 @@ final class WorkspaceStore: ObservableObject {
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
+
+    // MARK: - D30 Session interest lifecycle
+
+    /// Scope of a release operation — one file, or all docs the
+    /// session is interested in.
+    enum ReleaseScope {
+        case file(URL)
+        case all
+    }
+
+    /// Register a session as interested in `doc`. Phase 2 is a stub
+    /// that records the signal; Phase 3 mutates
+    /// `doc.interestedSessions` and enforces the v1 1:1 cap.
+    func registerInterest(sessionID: String, on doc: EditorDocument, label: String? = nil) {
+        NSLog("D30 registerInterest(sessionID: \(sessionID), on: \(doc.displayName), label: \(label ?? "nil")) — stub (Phase 3)")
+    }
+
+    /// Release a session's interest. Phase 2 is a stub; Phase 3
+    /// iterates open tabs and clears matching `SessionInterest`
+    /// entries.
+    func releaseInterest(sessionID: String, scope: ReleaseScope) {
+        NSLog("D30 releaseInterest(sessionID: \(sessionID), scope: \(scope)) — stub (Phase 3)")
+    }
 }

@@ -13,6 +13,7 @@ enum ExternalCommandIdentifier: String {
     case openFile = "open"
     case openFolder = "open-folder"
     case setView = "set-view"
+    case releaseSessionInterest = "release"
 }
 
 /// An external command. Implementations operate on the

@@ -2,7 +2,7 @@ import Foundation
 
 /// Open a file in a tab.
 ///
-/// URL form: `md-editor://open?path=<url-encoded-absolute-path>[&tab=new|existing][&line=N[&column=M]]`
+/// URL form: `md-editor://open?path=<url-encoded-absolute-path>[&tab=new|existing][&line=N[&column=M]][&session=<opaque-id>]`
 ///
 /// `tab=existing` (default): focus the file's tab if already open;
 /// otherwise open a new tab.
@@ -13,6 +13,10 @@ import Foundation
 /// beyond EOF clamps to the last line.
 /// `column` (D9, 1-based, optional): place the caret at the given
 /// column on the target line. Column beyond end-of-line clamps.
+///
+/// `session` (D30, optional): opaque session identifier. When present,
+/// the opened tab registers a SessionInterest for that session id
+/// (lifecycle wiring lands in Phase 3 via WorkspaceStore).
 @MainActor
 enum OpenFileCommand: ExternalCommand {
     static let identifier = ExternalCommandIdentifier.openFile
@@ -40,6 +44,12 @@ enum OpenFileCommand: ExternalCommand {
         if let doc, let lineStr = params["line"], let line = Int(lineStr) {
             let column = params["column"].flatMap(Int.init) ?? 1
             doc.pendingFocusTarget = .caret(line: line, column: column)
+        }
+
+        // D30 — session interest registration. Phase 2 records the
+        // signal; Phase 3 wires WorkspaceStore.registerInterest(...).
+        if let doc, let sessionID = params["session"], !sessionID.isEmpty {
+            workspace.registerInterest(sessionID: sessionID, on: doc)
         }
     }
 }

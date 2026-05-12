@@ -17,6 +17,7 @@ enum CommandSurface {
         OpenFileCommand.identifier: OpenFileCommand.self,
         OpenFolderCommand.identifier: OpenFolderCommand.self,
         SetViewCommand.identifier: SetViewCommand.self,
+        ReleaseSessionInterestCommand.identifier: ReleaseSessionInterestCommand.self,
     ]
 
     // MARK: - Pending-event queue

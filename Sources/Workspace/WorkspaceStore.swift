@@ -283,6 +283,54 @@ final class WorkspaceStore: ObservableObject {
         treeViewModels = models
     }
 
+    // MARK: - D31 phase 5 — Open Recent menu
+
+    /// Open a `RecentEntry` (local or PM) into a new tab. Mirrors the
+    /// `WorkspaceView.handleSelect` code path so the user can't tell
+    /// whether the file was clicked in the sidebar or selected from
+    /// File → Open Recent.
+    func openRecentEntry(_ entry: RecentEntry) {
+        switch entry.kind {
+        case let .local(path):
+            let url = URL(fileURLWithPath: path)
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            _ = tabs.open(fileURL: url)
+        case let .portableMind(connectorID, fileID, displayPath, name, lastSeenUpdatedAt):
+            guard let connector = connectors.first(where: { $0.id == connectorID }) else { return }
+            let node = ConnectorNode(
+                id: "\(connectorID):file:\(fileID)",
+                name: name,
+                path: displayPath,
+                kind: .file,
+                isSupported: true,
+                lastSeenUpdatedAt: lastSeenUpdatedAt,
+                connector: connector)
+            Task { @MainActor in
+                do {
+                    let (bytes, refreshedNode) = try await connector.openFile(node)
+                    let text = String(data: bytes, encoding: .utf8) ?? ""
+                    _ = tabs.openFromConnector(content: text, node: refreshedNode)
+                } catch {
+                    let alert = NSAlert()
+                    alert.messageText = "Couldn't open \(name)"
+                    alert.informativeText = "\(error)"
+                    alert.runModal()
+                }
+            }
+        }
+    }
+
+    /// Open a `RecentFolderEntry` as the workspace root. Behaves
+    /// identically to picking it via Open Folder…
+    func openRecentFolder(_ folder: RecentFolderEntry) {
+        let url = URL(fileURLWithPath: folder.path)
+        guard folder.isAvailable else { return }
+        // No new security-scoped bookmark — the existing one (if any)
+        // resolves through SecurityScopedBookmarkStore. v1 of this
+        // surface doesn't extend that machinery (spec §5).
+        setRoot(url: url, persistBookmark: true)
+    }
+
     // MARK: - D31 phase 4 — Session restore
 
     /// Rehydrate the previous session's tabs (local + PM), focus, and

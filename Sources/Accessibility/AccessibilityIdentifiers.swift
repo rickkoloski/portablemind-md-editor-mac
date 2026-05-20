@@ -94,4 +94,22 @@ enum AccessibilityIdentifiers {
     static func tabSessionBadge(documentID: UUID) -> String {
         "md-editor.tabs.session-badge:\(documentID.uuidString)"
     }
+
+    // D31 — File → Open Recent submenu.
+    static let fileMenuOpenRecent = "md-editor.menu.file.open-recent"
+    static let fileMenuOpenRecentClear = "md-editor.menu.file.open-recent.clear"
+    static let fileMenuOpenRecentFoldersHeader = "md-editor.menu.file.open-recent.folders-header"
+    static let fileMenuOpenRecentEmpty = "md-editor.menu.file.open-recent.empty"
+
+    /// Per-entry identifier inside the Open Recent submenu. Positional
+    /// (newest = 0) — stable enough for XCUITest assertions while still
+    /// rendering when the entry's URL contains characters that would
+    /// make a content-based identifier brittle.
+    static func fileMenuOpenRecentItem(index: Int) -> String {
+        "md-editor.menu.file.open-recent.item:\(index)"
+    }
+
+    static func fileMenuOpenRecentFolder(index: Int) -> String {
+        "md-editor.menu.file.open-recent.folder:\(index)"
+    }
 }

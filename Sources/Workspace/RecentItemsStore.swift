@@ -341,6 +341,34 @@ struct RecentEntry: Codable, Identifiable, Hashable {
         }
     }
 
+    /// Whether the entry can be opened right now. Local: the file
+    /// exists at the recorded path. PM: a connector with the matching
+    /// id is loaded. Used by the menu to render the entry disabled.
+    @MainActor
+    func isAvailable(connectors: [any Connector]) -> Bool {
+        switch kind {
+        case .local(let path):
+            return FileManager.default.fileExists(atPath: path)
+        case .portableMind(let cid, _, _, _, _):
+            return connectors.contains { $0.id == cid }
+        }
+    }
+
+    /// Tooltip shown on the menu item — full identifier for the file.
+    /// Home-relative for local paths (mirrors D21 tooltip convention).
+    var tooltip: String {
+        switch kind {
+        case .local(let path):
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            if path.hasPrefix(home) {
+                return "~" + path.dropFirst(home.count)
+            }
+            return path
+        case .portableMind(let cid, _, let displayPath, _, _):
+            return "\(displayPath)  ·  \(cid)"
+        }
+    }
+
     /// Stable connector key for `entryID(for…)` lookups.
     fileprivate func matchesLocal(path: String) -> Bool {
         if case .local(let p) = kind { return p == path }
@@ -363,6 +391,21 @@ struct RecentFolderEntry: Codable, Hashable {
     /// Last path component for the menu label.
     var displayName: String {
         (path as NSString).lastPathComponent
+    }
+
+    /// Home-relative tooltip (mirrors D21 convention).
+    var tooltip: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if path.hasPrefix(home) {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
+    }
+
+    /// Folder still resolves on disk?
+    var isAvailable: Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }
 }
 

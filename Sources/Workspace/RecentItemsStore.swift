@@ -58,6 +58,18 @@ final class RecentItemsStore: ObservableObject {
         dec.dateDecodingStrategy = .iso8601
         self.decoder = dec
 
+        // D31 — XCUITest launch arg to start with a clean slate.
+        // Wipes all three D31 keys plus the legacy keys before the
+        // first read so SC7 (first-launch / wiped defaults) and SC1
+        // (round-trip) can run from a known-empty state.
+        if CommandLine.arguments.contains("--reset-recents") {
+            defaults.removeObject(forKey: Self.entriesKey)
+            defaults.removeObject(forKey: Self.foldersKey)
+            defaults.removeObject(forKey: Self.sessionKey)
+            defaults.removeObject(forKey: Self.legacyOpenTabsKey)
+            defaults.removeObject(forKey: Self.legacyFocusedTabIndexKey)
+        }
+
         load()
         migrateLegacyIfNeeded()
     }

@@ -15,13 +15,19 @@ struct OpenRecentMenu: View {
     var body: some View {
         Group {
             if recents.entries.isEmpty && recents.folders.isEmpty {
-                Text("(No Recent Files)")
+                // SwiftUI Text inside Menu doesn't reliably propagate
+                // accessibilityIdentifier through the NSMenu AX bridge;
+                // a disabled Button does, which keeps the placeholder
+                // targetable from XCUITest.
+                Button("(No Recent Files)") { }
+                    .disabled(true)
                     .accessibilityIdentifier(AccessibilityIdentifiers.fileMenuOpenRecentEmpty)
             } else {
                 fileItems
                 if !recents.folders.isEmpty {
                     Divider()
-                    Text("Recent Folders")
+                    Button("Recent Folders") { }
+                        .disabled(true)
                         .accessibilityIdentifier(AccessibilityIdentifiers.fileMenuOpenRecentFoldersHeader)
                     folderItems
                 }

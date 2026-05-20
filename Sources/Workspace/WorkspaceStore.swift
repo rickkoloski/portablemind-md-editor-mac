@@ -105,17 +105,29 @@ final class WorkspaceStore: ObservableObject {
 
     private init() {
         // D31 phase 4 — single sink: record any newly-opened doc, then
-        // persist current session state. Order matters: persistSession
-        // resolves doc → RecentEntry.id, so the entry must exist first.
+        // persist current session state.
+        //
+        // CRITICAL: `@Published` emits on `willSet`, so the property
+        // being observed still holds the OLD value when the sink fires.
+        // Always pass the new value (`docs` / `focusedIdx`) explicitly
+        // into the persistence helpers; never read `tabs.documents` or
+        // `tabs.focusedIndex` directly inside these sinks. Reading the
+        // property would lose the most recent change and the persisted
+        // SessionState would always trail by one event — the bug
+        // caught on first dogfood 2026-05-15 (open tabs didn't restore
+        // across relaunch).
         tabs.$documents
             .sink { [weak self] docs in
                 guard let self else { return }
                 self.recordNewlyOpenedDocuments(docs)
-                self.persistSessionState()
+                self.persistSessionState(docs: docs, focusedIdx: self.tabs.focusedIndex)
             }
             .store(in: &cancellables)
         tabs.$focusedIndex
-            .sink { [weak self] _ in self?.persistSessionState() }
+            .sink { [weak self] idx in
+                guard let self else { return }
+                self.persistSessionState(docs: self.tabs.documents, focusedIdx: idx)
+            }
             .store(in: &cancellables)
     }
 
@@ -129,18 +141,26 @@ final class WorkspaceStore: ObservableObject {
         seenDocumentIDs = currentIDs
     }
 
-    /// D31 phase 4 — translate the live tab list into RecentEntry IDs and
-    /// hand off to RecentItemsStore.
-    private func persistSessionState() {
+    /// D31 phase 4 — translate the tab list into RecentEntry IDs and
+    /// hand off to RecentItemsStore. Both args are passed in (not read
+    /// off the published properties) so this is safe to call from a
+    /// `willSet`-timed Combine sink. See `init` for the bug history.
+    private func persistSessionState(docs: [EditorDocument], focusedIdx: Int?) {
         if isRestoring { return }
-        let tabIDs: [UUID] = tabs.documents.compactMap { recentEntryID(for: $0) }
+        let tabIDs: [UUID] = docs.compactMap { recentEntryID(for: $0) }
         let focusedID: UUID? = {
-            guard let focusedIdx = tabs.focusedIndex,
-                  tabs.documents.indices.contains(focusedIdx) else { return nil }
-            return recentEntryID(for: tabs.documents[focusedIdx])
+            guard let focusedIdx, docs.indices.contains(focusedIdx) else { return nil }
+            return recentEntryID(for: docs[focusedIdx])
         }()
         RecentItemsStore.shared.updateSessionState(
             openTabIDs: tabIDs, focusedTabID: focusedID)
+    }
+
+    /// External callers that want to force-persist current state (e.g.
+    /// the post-restore normalization in `restoreSession`) go through
+    /// this convenience overload that reads the current values.
+    private func persistSessionState() {
+        persistSessionState(docs: tabs.documents, focusedIdx: tabs.focusedIndex)
     }
 
     /// Resolve the RecentEntry.id that backs an open EditorDocument, or

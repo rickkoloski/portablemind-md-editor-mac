@@ -134,6 +134,26 @@ final class WorkspaceStore: ObservableObject {
         seenDocumentIDs = currentIDs
     }
 
+    /// D31 phase 3 — editor coordinator calls this (debounced 500ms) with
+    /// the first-visible line for a focused tab. We resolve the matching
+    /// `RecentEntry.id` from the doc's origin and forward to the store.
+    /// A doc with no matching entry (e.g. untitled local buffer) is a
+    /// silent no-op.
+    func sessionScrollLineDidChange(docID: UUID, line: Int) {
+        guard let doc = tabs.documents.first(where: { $0.id == docID }) else { return }
+        let entryID: UUID?
+        switch doc.origin {
+        case .local:
+            guard let url = doc.url else { return }
+            entryID = RecentItemsStore.shared.entryID(forLocalURL: url)
+        case let .portableMind(connectorID, fileID, _):
+            entryID = RecentItemsStore.shared.entryID(
+                forPMConnectorID: connectorID, fileID: fileID)
+        }
+        guard let id = entryID else { return }
+        RecentItemsStore.shared.recordScrollLine(line, for: id)
+    }
+
     private func recordOpenInRecents(_ doc: EditorDocument) {
         switch doc.origin {
         case .local:

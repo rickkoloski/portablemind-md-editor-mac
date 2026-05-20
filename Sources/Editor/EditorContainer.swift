@@ -102,6 +102,10 @@ struct EditorContainer: NSViewRepresentable {
         }
         DebugProbe.shared.recordScroll(scroll.contentView.bounds.origin.y)
 
+        // D31 phase 3 — attach scroll-line capture observer on the same
+        // bounds notification, debounced 500ms, forwarded to WorkspaceStore.
+        context.coordinator.attachScrollLineCapture(to: scroll)
+
         return scroll
     }
 
@@ -171,13 +175,24 @@ struct EditorContainer: NSViewRepresentable {
             if let token = scrollFrameObserver {
                 NotificationCenter.default.removeObserver(token)
             }
+            if let token = scrollLineObserver {
+                NotificationCenter.default.removeObserver(token)
+            }
             resizeReflowTask?.cancel()
+            scrollLineDebounceTask?.cancel()
         }
 
         /// Opaque tokens from `NotificationCenter.addObserver(forName:...)`.
         /// Must be held to keep the observer alive and removed on deinit.
         private var resizeObserver: NSObjectProtocol?
         private var scrollFrameObserver: NSObjectProtocol?
+        /// D31 phase 3 — scroll bounds observer for first-visible-line
+        /// capture. Separate from the existing DebugProbe observer so
+        /// each can be removed independently.
+        private var scrollLineObserver: NSObjectProtocol?
+        /// D31 phase 3 — 500ms trailing debounce on scroll-line capture.
+        /// Cancelled + rescheduled on each bounds change.
+        private var scrollLineDebounceTask: Task<Void, Never>?
 
         func wireDocumentSubscription() {
             // When the document's source changes externally (e.g., an
@@ -287,6 +302,40 @@ struct EditorContainer: NSViewRepresentable {
                 if Task.isCancelled { return }
                 guard let self else { return }
                 self.renderCurrentText(in: textView)
+            }
+        }
+
+        /// D31 phase 3 — attach the scroll-line capture observer. Held
+        /// on the coordinator (token in `scrollLineObserver`) so it
+        /// lives exactly as long as the document does.
+        func attachScrollLineCapture(to scroll: NSScrollView) {
+            scrollLineObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scroll.contentView,
+                queue: .main
+            ) { [weak self, weak scroll] _ in
+                guard let self, let scroll else { return }
+                self.scheduleScrollLineCapture(in: scroll)
+            }
+        }
+
+        /// D31 phase 3 — debounced 500ms trailing capture. Reads the
+        /// first visible character index from the public NSTextView API
+        /// (`characterIndexForInsertion(at:)`) — does not touch the
+        /// layout manager.
+        private func scheduleScrollLineCapture(in scroll: NSScrollView) {
+            scrollLineDebounceTask?.cancel()
+            scrollLineDebounceTask = Task { @MainActor [weak self, weak scroll] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if Task.isCancelled { return }
+                guard let self, let scroll,
+                      let textView = scroll.documentView as? NSTextView else { return }
+                let topY = scroll.contentView.documentVisibleRect.origin.y
+                let topPoint = NSPoint(x: 0, y: topY)
+                let charIndex = textView.characterIndexForInsertion(at: topPoint)
+                let line = textView.string.lineNumber(forCharacterIndex: charIndex)
+                WorkspaceStore.shared.sessionScrollLineDidChange(
+                    docID: self.document.id, line: line)
             }
         }
 

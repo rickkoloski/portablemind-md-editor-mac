@@ -45,4 +45,28 @@ extension String {
         let loc = lineStart + (targetCol - 1)
         return min(loc, lineEnd)
     }
+
+    /// Inverse of `nsLocation(forLine:column:)`: given an NSString
+    /// character index, return the 1-based line number containing it.
+    ///
+    /// - Line 1 is the first line.
+    /// - Index ≤ 0 clamps to line 1.
+    /// - Index ≥ length clamps to the last line.
+    /// - Newline characters are considered part of the line they end.
+    func lineNumber(forCharacterIndex charIndex: Int) -> Int {
+        let ns = self as NSString
+        let length = ns.length
+        if length == 0 { return 1 }
+        let target = min(max(0, charIndex), length)
+        let newline = unichar(UnicodeScalar("\n").value)
+        var line = 1
+        var i = 0
+        while i < target {
+            if ns.character(at: i) == newline {
+                line += 1
+            }
+            i += 1
+        }
+        return line
+    }
 }

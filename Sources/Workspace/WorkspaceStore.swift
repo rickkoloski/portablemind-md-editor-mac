@@ -94,15 +94,62 @@ final class WorkspaceStore: ObservableObject {
     private static let openTabsKey = "openTabs"
     private static let focusedTabIndexKey = "focusedTabIndex"
 
+    /// D31 phase 2 — set of `EditorDocument.id` seen on the previous
+    /// `tabs.$documents` emission. Used to detect newly-opened docs
+    /// without re-recording on every focus change.
+    private var seenDocumentIDs: Set<UUID> = []
+
+    /// D31 phase 4 — when true, the documents-changed subscription
+    /// skips MRU recording so session restore doesn't re-promote tabs
+    /// it's just rehydrating from the previous session. Set by
+    /// `restoreSession()`; cleared once restore finishes.
+    private var isRestoring = false
+
     private init() {
-        // Re-persist open tabs and focus whenever they change, so
-        // next launch can restore.
+        // Legacy partial persistence (D31 phase 2 — kept alive one more
+        // phase so we don't break tab restore before phase 4's
+        // restoreSession lands).
         tabs.$documents
             .sink { [weak self] _ in self?.persistTabs() }
             .store(in: &cancellables)
         tabs.$focusedIndex
             .sink { [weak self] _ in self?.persistTabs() }
             .store(in: &cancellables)
+
+        // D31 phase 2 — record every newly-opened doc in the MRU store.
+        // Set-difference against the prior snapshot so close + reorder
+        // don't trigger a re-record.
+        tabs.$documents
+            .sink { [weak self] docs in self?.recordNewlyOpenedDocuments(docs) }
+            .store(in: &cancellables)
+    }
+
+    private func recordNewlyOpenedDocuments(_ docs: [EditorDocument]) {
+        if isRestoring { return }
+        let currentIDs = Set(docs.map(\.id))
+        let newIDs = currentIDs.subtracting(seenDocumentIDs)
+        for doc in docs where newIDs.contains(doc.id) {
+            recordOpenInRecents(doc)
+        }
+        seenDocumentIDs = currentIDs
+    }
+
+    private func recordOpenInRecents(_ doc: EditorDocument) {
+        switch doc.origin {
+        case .local:
+            // Untitled local buffers have no url — nothing to record.
+            guard let url = doc.url else { return }
+            RecentItemsStore.shared.recordOpen(localURL: url)
+        case let .portableMind(connectorID, fileID, displayPath):
+            let name = doc.connectorNode?.name
+                ?? (displayPath as NSString).lastPathComponent
+            RecentItemsStore.shared.recordOpen(
+                connectorID: connectorID,
+                fileID: fileID,
+                displayPath: displayPath,
+                name: name,
+                lastSeenUpdatedAt: doc.connectorNode?.lastSeenUpdatedAt)
+        }
     }
 
     // MARK: - Lifecycle
@@ -150,6 +197,10 @@ final class WorkspaceStore: ObservableObject {
                 url: url,
                 forKey: SecurityScopedBookmarkKeys.workspaceRoot
             )
+            // D31 phase 2 — record in Recent Folders. Only when the user
+            // actually chose this root (persistBookmark=true skips the
+            // restore path, which is just rehydrating the prior root).
+            RecentItemsStore.shared.recordFolder(url)
         }
         reconcileConnectors()
     }

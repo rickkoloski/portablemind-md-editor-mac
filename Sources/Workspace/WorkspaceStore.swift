@@ -91,25 +91,149 @@ final class WorkspaceStore: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var ready = false
 
-    private static let openTabsKey = "openTabs"
-    private static let focusedTabIndexKey = "focusedTabIndex"
+    /// D31 phase 2 — set of `EditorDocument.id` seen on the previous
+    /// `tabs.$documents` emission. Used to detect newly-opened docs
+    /// without re-recording on every focus change.
+    private var seenDocumentIDs: Set<UUID> = []
+
+    /// D31 phase 4 — when true, the documents-changed subscription
+    /// skips MRU recording AND session-state persistence so restore
+    /// doesn't re-promote rehydrated tabs or partial-persist a half-
+    /// restored snapshot. Set by `restoreSession()`; cleared once
+    /// restore finishes.
+    private var isRestoring = false
 
     private init() {
-        // Re-persist open tabs and focus whenever they change, so
-        // next launch can restore.
+        // D31 phase 4 — single sink: record any newly-opened doc, then
+        // persist current session state.
+        //
+        // CRITICAL #1: `@Published` emits on `willSet`, so the property
+        // being observed still holds the OLD value when the sink fires.
+        // Always pass the new value (`docs` / `focusedIdx`) explicitly
+        // into the persistence helpers; never read `tabs.documents` or
+        // `tabs.focusedIndex` directly inside these sinks. (Bug caught
+        // 2026-05-15 first dogfood.)
+        //
+        // CRITICAL #2: `@Published` also emits the CURRENT value
+        // synchronously on subscribe. Without `.dropFirst()` the sink
+        // fires with the empty initial-state value during init(), which
+        // triggers `RecentItemsStore.shared` to lazy-init (loading
+        // sessionState from disk) and then immediately overwrites that
+        // loaded state with empty via `updateSessionState`. Result: the
+        // persisted SessionState gets WIPED to empty before
+        // `restoreSession()` ever reads it on launch — so tabs never
+        // restore. Skipping the initial emission is the surgical fix.
+        // (Bug caught 2026-05-15 second dogfood; root cause two layers
+        // down from the willSet fix.)
         tabs.$documents
-            .sink { [weak self] _ in self?.persistTabs() }
+            .dropFirst()
+            .sink { [weak self] docs in
+                guard let self else { return }
+                self.recordNewlyOpenedDocuments(docs)
+                self.persistSessionState(docs: docs, focusedIdx: self.tabs.focusedIndex)
+            }
             .store(in: &cancellables)
         tabs.$focusedIndex
-            .sink { [weak self] _ in self?.persistTabs() }
+            .dropFirst()
+            .sink { [weak self] idx in
+                guard let self else { return }
+                self.persistSessionState(docs: self.tabs.documents, focusedIdx: idx)
+            }
             .store(in: &cancellables)
+    }
+
+    private func recordNewlyOpenedDocuments(_ docs: [EditorDocument]) {
+        if isRestoring { return }
+        let currentIDs = Set(docs.map(\.id))
+        let newIDs = currentIDs.subtracting(seenDocumentIDs)
+        for doc in docs where newIDs.contains(doc.id) {
+            recordOpenInRecents(doc)
+        }
+        seenDocumentIDs = currentIDs
+    }
+
+    /// D31 phase 4 — translate the tab list into RecentEntry IDs and
+    /// hand off to RecentItemsStore. Both args are passed in (not read
+    /// off the published properties) so this is safe to call from a
+    /// `willSet`-timed Combine sink. See `init` for the bug history.
+    private func persistSessionState(docs: [EditorDocument], focusedIdx: Int?) {
+        if isRestoring { return }
+        let tabIDs: [UUID] = docs.compactMap { recentEntryID(for: $0) }
+        let focusedID: UUID? = {
+            guard let focusedIdx, docs.indices.contains(focusedIdx) else { return nil }
+            return recentEntryID(for: docs[focusedIdx])
+        }()
+        RecentItemsStore.shared.updateSessionState(
+            openTabIDs: tabIDs, focusedTabID: focusedID)
+    }
+
+    /// External callers that want to force-persist current state (e.g.
+    /// the post-restore normalization in `restoreSession`) go through
+    /// this convenience overload that reads the current values.
+    private func persistSessionState() {
+        persistSessionState(docs: tabs.documents, focusedIdx: tabs.focusedIndex)
+    }
+
+    /// Resolve the RecentEntry.id that backs an open EditorDocument, or
+    /// nil for documents that can't be expressed as a RecentEntry
+    /// (untitled local buffers, etc).
+    private func recentEntryID(for doc: EditorDocument) -> UUID? {
+        switch doc.origin {
+        case .local:
+            guard let url = doc.url else { return nil }
+            return RecentItemsStore.shared.entryID(forLocalURL: url)
+        case let .portableMind(connectorID, fileID, _):
+            return RecentItemsStore.shared.entryID(
+                forPMConnectorID: connectorID, fileID: fileID)
+        }
+    }
+
+    /// D31 phase 3 — editor coordinator calls this (debounced 500ms) with
+    /// the first-visible line for a focused tab. We resolve the matching
+    /// `RecentEntry.id` from the doc's origin and forward to the store.
+    /// A doc with no matching entry (e.g. untitled local buffer) is a
+    /// silent no-op.
+    func sessionScrollLineDidChange(docID: UUID, line: Int) {
+        guard let doc = tabs.documents.first(where: { $0.id == docID }) else { return }
+        let entryID: UUID?
+        switch doc.origin {
+        case .local:
+            guard let url = doc.url else { return }
+            entryID = RecentItemsStore.shared.entryID(forLocalURL: url)
+        case let .portableMind(connectorID, fileID, _):
+            entryID = RecentItemsStore.shared.entryID(
+                forPMConnectorID: connectorID, fileID: fileID)
+        }
+        guard let id = entryID else { return }
+        RecentItemsStore.shared.recordScrollLine(line, for: id)
+    }
+
+    private func recordOpenInRecents(_ doc: EditorDocument) {
+        switch doc.origin {
+        case .local:
+            // Untitled local buffers have no url — nothing to record.
+            guard let url = doc.url else { return }
+            RecentItemsStore.shared.recordOpen(localURL: url)
+        case let .portableMind(connectorID, fileID, displayPath):
+            let name = doc.connectorNode?.name
+                ?? (displayPath as NSString).lastPathComponent
+            RecentItemsStore.shared.recordOpen(
+                connectorID: connectorID,
+                fileID: fileID,
+                displayPath: displayPath,
+                name: name,
+                lastSeenUpdatedAt: doc.connectorNode?.lastSeenUpdatedAt)
+        }
     }
 
     // MARK: - Lifecycle
 
     /// Called from the SwiftUI scene `.onAppear`. Resolves any
-    /// persisted workspace bookmark and re-opens the previous tab
-    /// set.
+    /// persisted workspace bookmark and re-opens the previous tab set.
+    /// D31 phase 4 — tab restore now goes through RecentItemsStore's
+    /// SessionState. PM tabs are restored async (the connector fetch
+    /// resolves over the network); local tabs are restored synchronously
+    /// so the bulk of the UI is in place before the first runloop hop.
     func restoreFromBookmarks() {
         if !ready,
            let resolved = try? SecurityScopedBookmarkStore.shared.resolve(
@@ -122,7 +246,7 @@ final class WorkspaceStore: ObservableObject {
             // connector if a token is present.
             reconcileConnectors()
         }
-        restorePersistedTabs()
+        restoreSession()
         ready = true
         CommandSurface.drainPending(in: self)
     }
@@ -150,6 +274,10 @@ final class WorkspaceStore: ObservableObject {
                 url: url,
                 forKey: SecurityScopedBookmarkKeys.workspaceRoot
             )
+            // D31 phase 2 — record in Recent Folders. Only when the user
+            // actually chose this root (persistBookmark=true skips the
+            // restore path, which is just rehydrating the prior root).
+            RecentItemsStore.shared.recordFolder(url)
         }
         reconcileConnectors()
     }
@@ -186,25 +314,145 @@ final class WorkspaceStore: ObservableObject {
         treeViewModels = models
     }
 
-    // MARK: - Tab persistence
+    // MARK: - D31 phase 5 — Open Recent menu
 
-    private func persistTabs() {
-        let paths = tabs.documents.compactMap { $0.url?.path }
-        UserDefaults.standard.set(paths, forKey: Self.openTabsKey)
-        UserDefaults.standard.set(tabs.focusedIndex ?? -1, forKey: Self.focusedTabIndexKey)
-    }
-
-    private func restorePersistedTabs() {
-        let paths = (UserDefaults.standard.array(forKey: Self.openTabsKey) as? [String]) ?? []
-        for path in paths {
+    /// Open a `RecentEntry` (local or PM) into a new tab. Mirrors the
+    /// `WorkspaceView.handleSelect` code path so the user can't tell
+    /// whether the file was clicked in the sidebar or selected from
+    /// File → Open Recent.
+    func openRecentEntry(_ entry: RecentEntry) {
+        switch entry.kind {
+        case let .local(path):
             let url = URL(fileURLWithPath: path)
-            if FileManager.default.fileExists(atPath: url.path) {
-                _ = tabs.open(fileURL: url)
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            _ = tabs.open(fileURL: url)
+        case let .portableMind(connectorID, fileID, displayPath, name, lastSeenUpdatedAt):
+            guard let connector = connectors.first(where: { $0.id == connectorID }) else { return }
+            let node = ConnectorNode(
+                id: "\(connectorID):file:\(fileID)",
+                name: name,
+                path: displayPath,
+                kind: .file,
+                isSupported: true,
+                lastSeenUpdatedAt: lastSeenUpdatedAt,
+                connector: connector)
+            Task { @MainActor in
+                do {
+                    let (bytes, refreshedNode) = try await connector.openFile(node)
+                    let text = String(data: bytes, encoding: .utf8) ?? ""
+                    _ = tabs.openFromConnector(content: text, node: refreshedNode)
+                } catch {
+                    let alert = NSAlert()
+                    alert.messageText = "Couldn't open \(name)"
+                    alert.informativeText = "\(error)"
+                    alert.runModal()
+                }
             }
         }
-        let focusedIndex = UserDefaults.standard.integer(forKey: Self.focusedTabIndexKey)
-        if focusedIndex >= 0, focusedIndex < tabs.documents.count {
-            tabs.focusedIndex = focusedIndex
+    }
+
+    /// Open a `RecentFolderEntry` as the workspace root. Behaves
+    /// identically to picking it via Open Folder…
+    func openRecentFolder(_ folder: RecentFolderEntry) {
+        let url = URL(fileURLWithPath: folder.path)
+        guard folder.isAvailable else { return }
+        // No new security-scoped bookmark — the existing one (if any)
+        // resolves through SecurityScopedBookmarkStore. v1 of this
+        // surface doesn't extend that machinery (spec §5).
+        setRoot(url: url, persistBookmark: true)
+    }
+
+    // MARK: - D31 phase 4 — Session restore
+
+    /// Rehydrate the previous session's tabs (local + PM), focus, and
+    /// scroll lines from `RecentItemsStore.sessionState`. Sets
+    /// `isRestoring` so the doc-set / focus subscriptions don't re-
+    /// promote rehydrated tabs in MRU or persist partial snapshots.
+    /// Local tabs open synchronously; PM tabs open async (one Task per
+    /// PM tab, parallel) and the post-fetch op re-runs focus + scroll
+    /// assignment in case the focused tab was PM.
+    private func restoreSession() {
+        let session = RecentItemsStore.shared.sessionState
+        guard !session.openTabs.isEmpty else { return }
+
+        isRestoring = true
+
+        // Map from RecentEntry.id → EditorDocument.id once tabs land,
+        // so we can resolve focus / scroll-line by entry id even when
+        // some tabs arrive async.
+        var entryToDocID: [UUID: UUID] = [:]
+        var pendingPMRestores = 0
+
+        let applyFocusAndScroll: () -> Void = { [weak self] in
+            guard let self else { return }
+            if let focusEntryID = session.focusedTab,
+               let docID = entryToDocID[focusEntryID],
+               let idx = self.tabs.documents.firstIndex(where: { $0.id == docID }) {
+                self.tabs.focusedIndex = idx
+            }
+            for (entryID, line) in session.scrollLines {
+                guard let docID = entryToDocID[entryID],
+                      let doc = self.tabs.documents.first(where: { $0.id == docID })
+                else { continue }
+                doc.pendingFocusTarget = .caret(line: line, column: 0)
+            }
+        }
+
+        for entryID in session.openTabs {
+            guard let entry = RecentItemsStore.shared.entry(for: entryID) else { continue }
+            switch entry.kind {
+            case let .local(path):
+                let url = URL(fileURLWithPath: path)
+                guard FileManager.default.fileExists(atPath: url.path) else { continue }
+                if let doc = tabs.open(fileURL: url) {
+                    entryToDocID[entryID] = doc.id
+                }
+            case let .portableMind(connectorID, fileID, displayPath, name, lastSeenUpdatedAt):
+                guard let connector = connectors.first(where: { $0.id == connectorID }) else {
+                    continue   // F12 / spec §2: connector not loaded → silent skip
+                }
+                pendingPMRestores += 1
+                let node = ConnectorNode(
+                    id: "\(connectorID):file:\(fileID)",
+                    name: name,
+                    path: displayPath,
+                    kind: .file,
+                    isSupported: true,
+                    lastSeenUpdatedAt: lastSeenUpdatedAt,
+                    connector: connector)
+                Task { @MainActor [weak self, entryID] in
+                    defer {
+                        pendingPMRestores -= 1
+                        if pendingPMRestores == 0 {
+                            applyFocusAndScroll()
+                            self?.isRestoring = false
+                            self?.seenDocumentIDs = Set(self?.tabs.documents.map(\.id) ?? [])
+                        }
+                    }
+                    guard let self else { return }
+                    do {
+                        let (bytes, refreshedNode) = try await connector.openFile(node)
+                        let text = String(data: bytes, encoding: .utf8) ?? ""
+                        let doc = self.tabs.openFromConnector(content: text, node: refreshedNode)
+                        entryToDocID[entryID] = doc.id
+                    } catch {
+                        // F12 — silent skip on restore failure; the MRU
+                        // entry stays (next menu rebuild reflects state).
+                    }
+                }
+            }
+        }
+
+        // Sync portion done. If no PM restores were queued, apply focus
+        // + scroll now; otherwise the last PM completion does it.
+        seenDocumentIDs = Set(tabs.documents.map(\.id))
+        if pendingPMRestores == 0 {
+            applyFocusAndScroll()
+            isRestoring = false
+            // One persist now to capture the restored session state in
+            // canonical form (entries unchanged; this normalizes any
+            // dropped tabs out of the SessionState).
+            persistSessionState()
         }
     }
 

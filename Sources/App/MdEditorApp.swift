@@ -133,6 +133,13 @@ struct MdEditorApp: App {
                 Button("New PortableMind File…") { newPortableMindFile() }
                     .keyboardShortcut("n", modifiers: [.command, .option])
                     .disabled(!hasPortableMindConnector)
+                // D31 — Open Recent. Files newest-first (cap 15); then
+                // Recent Folders (cap 5); then Clear Menu.
+                Menu("Open Recent") {
+                    OpenRecentMenu(recents: RecentItemsStore.shared,
+                                   workspace: workspace)
+                }
+                .accessibilityIdentifier(AccessibilityIdentifiers.fileMenuOpenRecent)
             }
             // D14: Save / Save As. Operates on the focused document.
             // D18 phase 5: disabled when the focused tab is read-only

@@ -107,16 +107,26 @@ final class WorkspaceStore: ObservableObject {
         // D31 phase 4 — single sink: record any newly-opened doc, then
         // persist current session state.
         //
-        // CRITICAL: `@Published` emits on `willSet`, so the property
+        // CRITICAL #1: `@Published` emits on `willSet`, so the property
         // being observed still holds the OLD value when the sink fires.
         // Always pass the new value (`docs` / `focusedIdx`) explicitly
         // into the persistence helpers; never read `tabs.documents` or
-        // `tabs.focusedIndex` directly inside these sinks. Reading the
-        // property would lose the most recent change and the persisted
-        // SessionState would always trail by one event — the bug
-        // caught on first dogfood 2026-05-15 (open tabs didn't restore
-        // across relaunch).
+        // `tabs.focusedIndex` directly inside these sinks. (Bug caught
+        // 2026-05-15 first dogfood.)
+        //
+        // CRITICAL #2: `@Published` also emits the CURRENT value
+        // synchronously on subscribe. Without `.dropFirst()` the sink
+        // fires with the empty initial-state value during init(), which
+        // triggers `RecentItemsStore.shared` to lazy-init (loading
+        // sessionState from disk) and then immediately overwrites that
+        // loaded state with empty via `updateSessionState`. Result: the
+        // persisted SessionState gets WIPED to empty before
+        // `restoreSession()` ever reads it on launch — so tabs never
+        // restore. Skipping the initial emission is the surgical fix.
+        // (Bug caught 2026-05-15 second dogfood; root cause two layers
+        // down from the willSet fix.)
         tabs.$documents
+            .dropFirst()
             .sink { [weak self] docs in
                 guard let self else { return }
                 self.recordNewlyOpenedDocuments(docs)
@@ -124,6 +134,7 @@ final class WorkspaceStore: ObservableObject {
             }
             .store(in: &cancellables)
         tabs.$focusedIndex
+            .dropFirst()
             .sink { [weak self] idx in
                 guard let self else { return }
                 self.persistSessionState(docs: self.tabs.documents, focusedIdx: idx)

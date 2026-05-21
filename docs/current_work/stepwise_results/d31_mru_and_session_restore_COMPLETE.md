@@ -109,3 +109,16 @@ No other deviations.
 - **D30 Submit/Handoff session interest is NOT restored.** A tab that had a session interested in it pre-quit comes back as a fresh tab post-restore — the originating CC session is gone. This matches the spec OOS list.
 - **Recurring memory note:** `feedback_focus_stealing.md` was broadened during this deliverable (2026-05-15) — "ask before focus-stealing operations" now applies to parallel-session usage too, not just single-screen / on-the-road. Reflected in the prompt's Constraints section and observed during the Phase 5 test runs (asked before the 60s UI test suite run).
 - **Five commits on the branch** (excluding triad commit): Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 5 follow-up. Each phase's commit message documents its scope and DOD.
+
+### Dogfood findings (2026-05-15)
+
+Two Combine `@Published` timing bugs surfaced during live dogfood after Phase 6's docs landed. Both fixed on-branch before merge. Both also saved to memory at `feedback_combine_published_willset.md` for future-CC reference.
+
+**Bug #1 (commit `f147bf0`) — willSet timing.** `@Published` emits on `willSet`, so reading the underlying property inside its own sink returns the OLD value. My initial `persistSessionState()` read `tabs.documents` directly — it always trailed by one open. **Fix:** thread the closure parameter through (`persistSessionState(docs: docs, focusedIdx: idx)`). Surfaced on first dogfood: "tabs opened in a session don't restore on relaunch."
+
+**Bug #2 (commit `57e3e91`) — initial-emission timing.** `@Published` also emits its CURRENT value synchronously on subscribe. My init-time subscription fired with the empty initial documents array, which triggered `RecentItemsStore.shared`'s lazy-init (loading `sessionState` from disk), and then immediately wrote empty back to disk via `updateSessionState`. Every launch wiped the saved state BEFORE restore could read it. Restore early-returned on empty `openTabs`, no tabs. **Fix:** `.dropFirst()` on both publishers. Surfaced on second dogfood after fix #1 was confirmed still leaving the bug. Diagnosed via 5-step UserDefaults inspection in `docs/current_work/testing/d31_restore_bug_diagnostic.md` — that doc shows the full diagnostic flow and is worth keeping as a pattern.
+
+**Lesson for future Combine sinks driving persistence:**
+- Default to `.dropFirst()` on `@Published` projections feeding persistence sinks.
+- Never read the underlying property inside its own sink — thread the closure parameter through.
+- Both rules together. One protects against subsequent willSet emissions; the other protects against the initial-subscribe emission. Each rule alone leaves the other bug live.

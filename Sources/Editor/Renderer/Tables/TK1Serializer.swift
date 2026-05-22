@@ -69,8 +69,18 @@ enum TK1Serializer {
                 ? nsString.substring(with: paraRange)
                 : ""
             // Inspect first character's paragraph style for cell info.
+            //
+            // Defense in depth (paired with the ZWS workaround in
+            // TK1TableBuilder.makeCell): if a cell paragraph ever ends
+            // up truly empty (no ZWS, no user content), the table
+            // block style still sits on the \n terminator. Reading
+            // attrs as long as the paragraph's location is a valid
+            // storage index lets us detect cell info even for length-0
+            // paragraphs. Bug history: prior `paraRange.length > 0`
+            // guard caused empty cells to be silently treated as non-
+            // table paragraphs, splitting tables on save.
             let cellInfo: (table: NSTextTable, row: Int, col: Int)? = {
-                guard paraRange.length > 0 else { return nil }
+                guard paraRange.location < n else { return nil }
                 let attrs = storage.attributes(at: paraRange.location,
                                                effectiveRange: nil)
                 guard let pStyle = attrs[.paragraphStyle] as? NSParagraphStyle
@@ -90,7 +100,14 @@ enum TK1Serializer {
                     flushTable()
                     pendingTable = table
                 }
-                let escaped = paraText
+                // Strip the ZWS placeholder that TK1TableBuilder seeds
+                // into empty cells. Stripping at serialize-time is the
+                // most robust point — even if a cell becomes non-empty
+                // via user typing, residual leading ZWS gets removed
+                // so the markdown source never carries the placeholder.
+                let cleaned = paraText
+                    .replacingOccurrences(of: "\u{200B}", with: "")
+                let escaped = cleaned
                     .replacingOccurrences(of: "\\", with: "\\\\")
                     .replacingOccurrences(of: "|", with: "\\|")
                 if pendingCells[row] == nil {

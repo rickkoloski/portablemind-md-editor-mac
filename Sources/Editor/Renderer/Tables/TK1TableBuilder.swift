@@ -17,6 +17,32 @@ import Markdown
 
 enum TK1TableBuilder {
 
+    /// U+200B zero-width space. Seeded into empty cell paragraphs so
+    /// they have non-zero content length. Without this, NSTextTable
+    /// refuses to insert typed characters INTO a truly-empty cell —
+    /// the character escapes the cell and lands as a sibling non-
+    /// table paragraph, breaking the table on the next serializer pass.
+    ///
+    /// The serializer strips ZWS from cell paragraphs at save time
+    /// (see `TK1Serializer.serialize`), so the markdown source on
+    /// disk never sees this character.
+    ///
+    /// — Considered alternative (Option B, kept on file for future
+    ///   debugging) — overriding `insertText(_:)` in `LiveRenderTextView`
+    ///   to detect caret-in-empty-cell and explicitly set
+    ///   `typingAttributes` from the cell paragraph's style. Rejected
+    ///   for the first fix because it couples the input pipeline (paste,
+    ///   IME composition, drag-drop, selection-replace all need
+    ///   separate handling) and is hypothesis-driven about *why*
+    ///   NSTextTable breaks out of empty cells. The ZWS workaround is
+    ///   the canonical pattern used by production NSTextTable editors
+    ///   and is contained to two files. If a future failure mode
+    ///   surfaces that ZWS can't address (e.g., IME composition in an
+    ///   empty cell behaves differently), revisit Option B then.
+    ///   Full diagnosis + decision lives at
+    ///   `docs/current_work/issues/table_typing_bug_diagnostic.md`.
+    static let emptyCellPlaceholder = "\u{200B}"
+
     /// Build the cell-paragraphs attributed string for `table`.
     ///
     /// - Parameters:
@@ -185,14 +211,20 @@ enum TK1TableBuilder {
         // newline isn't part of the cell content range and shouldn't
         // count toward the cell's source span. The cellSourceRange
         // attribute attaches to the displayed text only (not the \n).
-        let body = "\(text)\n"
+        //
+        // Empty cells get a ZWS placeholder (see `emptyCellPlaceholder`
+        // doc comment for why). The ZWS is part of the paragraph's
+        // content for typing purposes but doesn't carry a source range
+        // — the serializer strips it before emitting markdown.
+        let displayText = text.isEmpty ? Self.emptyCellPlaceholder : text
+        let body = "\(displayText)\n"
         let attrs: [NSAttributedString.Key: Any] = [
             .paragraphStyle: paragraph,
             .font: font,
             .foregroundColor: NSColor.labelColor
         ]
         let cellAS = NSMutableAttributedString(string: body, attributes: attrs)
-        if text.count > 0 {
+        if !text.isEmpty {
             let textNSLength = (text as NSString).length
             cellAS.addAttribute(
                 TableAttributeKeys.cellSourceRangeKey,

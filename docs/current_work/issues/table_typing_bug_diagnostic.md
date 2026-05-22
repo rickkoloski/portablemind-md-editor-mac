@@ -116,3 +116,71 @@ CC will read the fixture between Rick's actions to see source state at each poin
 ## Followup
 
 When the diagnosis is in, file as `i07` in `docs/issues_backlog.md` if not blocking, or scope a D# deliverable if it warrants a fix pass. The D17 NSTextTable migration retired ~3,200 lines of custom-fragment code; we expect some sharp edges to surface during real-world cell editing.
+
+---
+
+## Diagnosis (2026-05-22)
+
+### Test result
+
+Pristine fixture has empty cells `| TC-02 |  |  |`. After typing `x` into TC-02's Result cell and saving:
+
+```
+| TC | Result | Notes |
+| --- | --- | --- |
+| TC-01 | pass | first row, populated |
+| TC-02 |  |  |        ← unchanged — `x` did NOT land in the cell
+x                       ← NEW standalone paragraph
+
+| TC-03 |  |  |        ← split into its own table
+| --- | --- | --- |
+
+
+| TC-04 | pass | last row, populated |
+| --- | --- | --- |
+```
+
+### Pipeline trace
+
+Every keystroke triggers `EditorContainer.Coordinator.textDidChange` → `TK1Serializer.serialize(storage)` → `document.source = serialized`. So the on-disk state after save is the result of:
+1. NSTextView accepts the typed character
+2. Serializer re-emits markdown from the attributed-string storage
+
+### Why typing doesn't land in the cell
+
+Each empty cell paragraph is built (`TK1TableBuilder.makeCell`) as just `"\n"` — a single newline carrying the cell's paragraph style (including `NSTextTableBlock`). The cell paragraph has length 0 in terms of visible content.
+
+When the user clicks into the empty cell, `cellContentEnd(containingContainerPoint:)` returns the position OF the `\n`. NSTextView places the caret there.
+
+When the user types, AppKit's NSTextTable handling has a known wart for empty cells: rather than inserting INTO the empty cell paragraph (which would extend the paragraph to `"x\n"`), it breaks out and creates a sibling non-cell paragraph for the typed character. The character lands without the table block attribute. The serializer then correctly treats that paragraph as a non-cell paragraph, ending the in-progress table, emitting `x\n`, then starting a new table for the rest of the rows.
+
+### Secondary bug (not the primary cause but worth fixing alongside)
+
+`TK1Serializer.serialize` line 73 has:
+
+```swift
+guard paraRange.length > 0 else { return nil }
+```
+
+This means even when a cell paragraph IS correctly preserved (just an empty `\n`), the serializer treats it as a non-cell paragraph and emits a blank line, splitting the table. The current renderer happens to preserve empty cells across load+save WITHOUT user edits because... actually it shouldn't even do that with this guard in place. Worth verifying with a no-edit round trip.
+
+### Fix options
+
+**Option A — zero-width placeholder (recommended, ~20-30 LOC).**
+- `TK1TableBuilder.makeCell`: when `text` is empty, use `body = "\u{200B}\n"` instead of `"\n"`. Apply the cell's paragraph style to the ZWS too.
+- `TK1Serializer.serialize`: when extracting `paraText`, strip leading/trailing `\u{200B}` chars before emitting.
+- `TK1Serializer.serialize` line 73: also fix the `paraRange.length > 0` guard so even-truly-empty paragraphs are inspected for cell info (defense in depth).
+- Pros: surgical, no input-pipeline changes, matches a well-known NSTextTable workaround used in production editors.
+- Cons: ZWS chars now flow through the attributed string; need to be careful about width measurement (D24.2 cell measurement uses `cellNaturalText` which would now contain ZWS — would measure 0 width since ZWS is zero-width by definition, but verify).
+
+**Option B — override `insertText` in `LiveRenderTextView` (heavier).**
+- Before super.insertText, detect caret-in-empty-cell via `cellTableInfo` + paragraph length check.
+- If so, explicitly set `typingAttributes` from the cell paragraph's style.
+- Pros: addresses root cause (typingAttributes inheritance).
+- Cons: touches the input pipeline; more edge cases (selection replace, multi-char paste, IME input).
+
+### Recommendation
+
+Option A. The ZWS workaround is the canonical fix for NSTextTable-empty-cell editing and is contained to two files. The secondary serializer guard fix is one line. Total ~30 LOC + tests.
+
+Scope as a small D# deliverable (D32?) or land as a hotfix? Bug is reliably reproducible, has clear root cause, and the fix is well-bounded. Argues for hotfix discipline (small commits on main + dogfood retest) rather than full triad.

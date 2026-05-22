@@ -106,6 +106,20 @@ final class EditorDocument: ObservableObject, Identifiable {
         watcher.onChange = { [weak self] newText in
             guard let self else { return }
             Task { @MainActor in
+                // Skip the re-render when the watcher event is for our
+                // own save. `writeAndRewatch` sets `lastSavedSource =
+                // source` BEFORE restarting the watcher; if the
+                // incoming text matches, this is the file-system
+                // delivering the event for the bytes we just wrote.
+                // Without this gate, the editor's own save triggers a
+                // full storage rebuild via the document.$source sink
+                // in EditorContainer, which restores the caret by raw
+                // NSRange offset and lands it in the wrong cell when
+                // the rebuild changes byte positions (ZWS placeholders,
+                // attribute boundaries, etc.). Symptom: caret auto-
+                // advances to the next cell ~1-3s after each save,
+                // tracking the file-system event latency. 2026-05-22.
+                if newText == self.lastSavedSource { return }
                 self.externallyDeleted = false
                 self.source = newText
                 self.lastSavedSource = newText
@@ -267,11 +281,20 @@ final class EditorDocument: ObservableObject, Identifiable {
 
     private func writeAndRewatch(url: URL) throws {
         watcher.stop()
-        defer { watcher.watch(url: url) }
         do {
             try source.write(to: url, atomically: true, encoding: .utf8)
         } catch {
+            // Re-watch even on failure so external edits resume tracking.
+            watcher.watch(url: url)
             throw SaveError.writeFailed(url, error)
         }
+        // Set BEFORE restarting the watcher so the equality check in
+        // watcher.onChange recognizes the next event (our own save's
+        // file-system notification) and skips the re-render. Without
+        // this ordering there's a race: the watcher could deliver
+        // synchronously during re-watch and see the stale (pre-save)
+        // lastSavedSource. 2026-05-22.
+        lastSavedSource = source
+        watcher.watch(url: url)
     }
 }

@@ -202,6 +202,48 @@ final class LiveRenderTextView: NSTextView {
         return nil
     }
 
+    // MARK: - Cell-aware insertion (Option B, layered with Option A's
+    //          ZWS placeholder in TK1TableBuilder.makeCell)
+    //
+    // Override insertText to force `typingAttributes` from the current
+    // cell paragraph's style before the underlying insertion runs. The
+    // ZWS placeholder fix alone protects the pristine + click + type
+    // case (verified 2026-05-22), but after a sibling cell in the same
+    // row has been edited, typing into an empty (still-ZWS-bearing) cell
+    // reverts to the original NSTextTable escape pattern: the typed
+    // character + the ZWS land in a NEW sibling paragraph without the
+    // table block attribute, while the cell paragraph stays empty.
+    //
+    // Setting typingAttributes from the cell paragraph's actual
+    // attribute set (which includes the NSTextTableBlock-bearing
+    // paragraph style) tells NSTextView "the next inserted char belongs
+    // to this cell." Sticks across the willChange/didChange storage
+    // mutation that NSTextTable would otherwise use to break out.
+    //
+    // Scope intentionally narrow: ONLY when caret is in a cell
+    // paragraph AND selection has zero length. Selection-replace and
+    // paste paths follow their own attribute-inheritance rules; v1
+    // doesn't touch them. If a future failure surfaces in those paths,
+    // extend here.
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        if let storage = textStorage {
+            let sel = selectedRange()
+            if sel.length == 0,
+               cellTableInfo(at: sel.location, in: storage) != nil
+            {
+                let nsString = storage.string as NSString
+                let paraRange = nsString.paragraphRange(
+                    for: NSRange(location: sel.location, length: 0))
+                if paraRange.location < storage.length {
+                    let cellAttrs = storage.attributes(
+                        at: paraRange.location, effectiveRange: nil)
+                    self.typingAttributes = cellAttrs
+                }
+            }
+        }
+        super.insertText(string, replacementRange: replacementRange)
+    }
+
     // MARK: - Keys
 
     override func keyDown(with event: NSEvent) {
